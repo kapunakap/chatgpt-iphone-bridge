@@ -1,0 +1,21 @@
+{
+  "name": "chatgpt-iphone-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local iPhone Safari automation for ChatGPT through OpenAI Secure MCP Tunnel and Appium MCP.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test:unit": "node --test scripts/*.test.mjs",
+    "smoke": "node scripts/appium-mcp-smoke.mjs",
+    "check": "bash -n scripts/*.sh && for file in scripts/*.mjs; do node --check \"$file\"; done && npm run test:unit && npm run smoke",
+    "tool": "node scripts/appium-mcp-tool.mjs",
+    "test": "npm run check"
+  },
+  "dependencies": {
+    "appium-mcp": "1.92.7"
+  }
+}

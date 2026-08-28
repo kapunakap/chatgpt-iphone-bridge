@@ -1,0 +1,13 @@
+node_modules/
+.DS_Store
+.env
+.env.*
+*.log
+screenshots/
+recordings/
+artifacts/
+*.mobileprovision
+*.provisionprofile
+*.p12
+*.cer
+runtime-api-key
