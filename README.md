@@ -1,5 +1,5 @@
 # ChatGPT iPhone Bridge
-
+<img width="1672" height="941" alt="ChatGPT Image Aug 30, 2026, 03_29_42 AM" src="https://github.com/user-attachments/assets/f3e87553-787e-4692-88e1-790056cd4e5f" />
 Control Mobile Safari on one USB-connected iPhone from ChatGPT through OpenAI Secure MCP Tunnel and Appium MCP.
 
 This is an unofficial beta candidate. It opens no public inbound port and does not expose Appium directly to the internet.
