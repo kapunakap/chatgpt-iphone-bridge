@@ -1,0 +1,21 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "chatgpt-iphone-cellular-relay",
+  "main": "src/worker.mjs",
+  "compatibility_date": "2026-08-30",
+  "durable_objects": {
+    "bindings": [
+      { "name": "DEVICES", "class_name": "DeviceRelay" },
+      { "name": "PAIR_RATES", "class_name": "PairRateLimiter" }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["DeviceRelay", "PairRateLimiter"]
+    }
+  ],
+  "observability": {
+    "enabled": false
+  }
+}

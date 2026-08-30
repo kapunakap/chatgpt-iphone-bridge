@@ -20,10 +20,24 @@ const requiredTools = new Set([
   "appium_prepare_ios_real_device_async",
   "appium_create_session_async",
 ]);
+const cellularEnabled = process.env.IPHONE_BRIDGE_CELLULAR_ENABLED === "true";
+if (cellularEnabled) {
+  for (const name of [
+    "iphone_browser_device_status",
+    "iphone_browser_session",
+    "iphone_browser_navigate",
+    "iphone_browser_find",
+    "iphone_browser_element",
+    "iphone_browser_snapshot",
+    "iphone_browser_screenshot",
+  ]) {
+    requiredTools.add(name);
+  }
+}
 for (const name of (process.env.APPIUM_BRIDGE_REQUIRED_TOOLS ?? "").split(",").filter(Boolean)) {
   requiredTools.add(name);
 }
-const expectedToolCount = Number(process.env.APPIUM_BRIDGE_EXPECTED_TOOLS ?? "33");
+const expectedToolCount = Number(process.env.APPIUM_BRIDGE_EXPECTED_TOOLS ?? (cellularEnabled ? "40" : "33"));
 const artifactRoot = await fs.mkdtemp(path.join(os.tmpdir(), "iphone-bridge-smoke-"));
 
 const child = spawn(launcher, [], {

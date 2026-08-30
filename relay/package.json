@@ -1,0 +1,14 @@
+{
+  "name": "chatgpt-iphone-cellular-relay",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "node --check src/core.mjs && node --check src/worker.mjs",
+    "test": "node --test src/*.test.mjs",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "4.127.1"
+  }
+}

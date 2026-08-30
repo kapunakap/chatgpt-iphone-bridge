@@ -18,3 +18,8 @@ artifacts/
 runtime-api-key
 coverage/
 npm-audit.json
+.wrangler/
+relay/.wrangler/
+DerivedData/
+xcuserdata/
+*.xcuserstate

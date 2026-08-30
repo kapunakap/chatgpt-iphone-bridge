@@ -3,7 +3,11 @@ set -euo pipefail
 
 ALIAS="${TUNNEL_ALIAS:-local-iphone-bridge}"
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-EXPECTED_LAUNCHER="$REPO_ROOT/scripts/appium-mcp-current.sh"
+if [[ "${IPHONE_BRIDGE_CELLULAR_ENABLED:-false}" == "true" ]]; then
+  EXPECTED_LAUNCHER="$REPO_ROOT/scripts/appium-mcp-cellular-current.sh"
+else
+  EXPECTED_LAUNCHER="$REPO_ROOT/scripts/appium-mcp-current.sh"
+fi
 
 printf '== Versions ==\n'
 printf 'node=%s\n' "$(node --version)"
@@ -31,3 +35,8 @@ if (!Object.values(checks).every(Boolean)) process.exit(2);
 NODE
 
 printf '\nBRIDGE_RUNTIME_READY=1\n'
+
+if [[ "${IPHONE_BRIDGE_CELLULAR_ENABLED:-false}" == "true" ]]; then
+  printf '\n== Cellular browser ==\n'
+  node "$REPO_ROOT/scripts/cellular-ops.mjs" status
+fi

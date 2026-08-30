@@ -8,6 +8,22 @@ Anyone who can invoke the connected ChatGPT app may be able to control the unloc
 
 Stop the managed runtime when it is not being used.
 
+## Cellular prototype trust boundary
+
+Cellular mode controls a dedicated WKWebView app, not Safari. It is disabled unless `IPHONE_BRIDGE_CELLULAR_ENABLED=true` is set on the Mac bridge.
+
+The Cloudflare relay accepts one host socket and one device socket per opaque device ID. It stores only the device alias, timestamps, public signing keys, hashed bearer credentials, revocation state, and a five-minute pairing-secret hash. Raw host and device credentials are returned once over TLS and are never stored. Browser commands, URLs, text, cookies, screenshots, decrypted responses, and session identifiers are not persisted or application-logged by the relay.
+
+Command payloads use an authenticated ephemeral P-256 handshake, HKDF-SHA256, and AES-GCM between the paired Mac and iPhone. The relay can still observe IP addresses, connection timing, message sizes, and normal Cloudflare account/platform metadata.
+
+The pairing QR or manual payload grants one-time pairing authority for five minutes. Do not post it, include it in logs, or send it through an untrusted channel. Revoke lost or unexpected pairings with `npm run cellular:revoke`.
+
+Every remote session requires the user to open the app and approve the requested HTTPS top-level origins. Backgrounding or locking the iPhone ends the session. A foreground network interruption has a 30-second reconnect grace. This is not unattended automation.
+
+Bridge Browser stores normal WKWebView cookies and website data on the iPhone. Session end keeps them for signed-in testing. Use **Clear browsing data** on the phone when persistence is not wanted. Downloads, file URLs, custom schemes, media capture, arbitrary remote JavaScript, and top-level navigation outside approved origins are blocked.
+
+Free Personal Team builds expire after seven days. Reinstalling may require pairing again. No production or public-release claim is valid until the full hosted ChatGPT flow passes with USB disconnected and Wi-Fi disabled.
+
 ## Enforced defaults
 
 Unless the local operator explicitly enables unsafe full Appium behavior, the bridge:
@@ -20,6 +36,7 @@ Unless the local operator explicitly enables unsafe full Appium behavior, the br
 - disables Appium relaxed security;
 - blocks file, clipboard, application, permissions, geolocation, settings, and device-control tools unless named locally;
 - binds legacy WDA port forwarding to `127.0.0.1`;
+- keeps the cellular browser and its seven tools disabled by default;
 - permits only one preparation or owned session across local bridge processes.
 
 These controls reduce accidental exposure. They do not provide per-user authorization inside one ChatGPT workspace.

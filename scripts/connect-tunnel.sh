@@ -5,7 +5,11 @@ ALIAS="${TUNNEL_ALIAS:-local-iphone-bridge}"
 TUNNEL_ID="${CONTROL_PLANE_TUNNEL_ID:-}"
 RUNTIME_API_KEY_FILE="${CONTROL_PLANE_RUNTIME_API_KEY_FILE:-$HOME/.config/chatgpt-iphone-bridge/runtime-api-key}"
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-APPIUM_LAUNCHER="$REPO_ROOT/scripts/appium-mcp-current.sh"
+if [[ "${IPHONE_BRIDGE_CELLULAR_ENABLED:-false}" == "true" ]]; then
+  APPIUM_LAUNCHER="$REPO_ROOT/scripts/appium-mcp-cellular-current.sh"
+else
+  APPIUM_LAUNCHER="$REPO_ROOT/scripts/appium-mcp-current.sh"
+fi
 ARTIFACT_ROOT="${APPIUM_BRIDGE_ARTIFACT_ROOT:-$HOME/Library/Application Support/chatgpt-iphone-bridge}"
 CONNECT_LOCK="$ARTIFACT_ROOT/runtime/connect.lock"
 
@@ -31,8 +35,14 @@ trap 'rmdir "$CONNECT_LOCK" 2>/dev/null || true' EXIT
 printf '== Direct Appium MCP smoke ==\n'
 node "$REPO_ROOT/scripts/appium-mcp-smoke.mjs"
 
-printf '\n== iOS signing preflight ==\n'
-bash "$REPO_ROOT/scripts/ios-signing-status.sh"
+if [[ "${IPHONE_BRIDGE_CELLULAR_ENABLED:-false}" == "true" ]]; then
+  printf '\n== Cellular pairing preflight ==\n'
+  node "$REPO_ROOT/scripts/cellular-ops.mjs" doctor
+  printf 'IOS_SIGNING_PREFLIGHT=skipped_cellular_mode\n'
+else
+  printf '\n== iOS signing preflight ==\n'
+  bash "$REPO_ROOT/scripts/ios-signing-status.sh"
+fi
 
 MCP_COMMAND="\"${APPIUM_LAUNCHER}\""
 

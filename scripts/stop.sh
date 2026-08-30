@@ -3,7 +3,8 @@ set -euo pipefail
 
 ALIAS="${TUNNEL_ALIAS:-local-iphone-bridge}"
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-EXPECTED_LAUNCHER="$REPO_ROOT/scripts/appium-mcp-current.sh"
+GENERIC_LAUNCHER="$REPO_ROOT/scripts/appium-mcp-current.sh"
+CELLULAR_LAUNCHER="$REPO_ROOT/scripts/appium-mcp-cellular-current.sh"
 ARTIFACT_ROOT="${APPIUM_BRIDGE_ARTIFACT_ROOT:-$HOME/Library/Application Support/chatgpt-iphone-bridge}"
 
 command -v tunnel-client >/dev/null 2>&1 || {
@@ -21,11 +22,11 @@ set -e
 }
 
 set +e
-BRIDGE_STATUS_JSON="$status_json" BRIDGE_EXPECTED_LAUNCHER="$EXPECTED_LAUNCHER" node <<'NODE'
+BRIDGE_STATUS_JSON="$status_json" BRIDGE_GENERIC_LAUNCHER="$GENERIC_LAUNCHER" BRIDGE_CELLULAR_LAUNCHER="$CELLULAR_LAUNCHER" node <<'NODE'
 const status = JSON.parse(process.env.BRIDGE_STATUS_JSON);
 if (status.process_running !== true) process.exit(3);
 const target = String(status?.process?.target_value ?? '').replace(/^['"]|['"]$/g, '');
-if (target !== process.env.BRIDGE_EXPECTED_LAUNCHER) process.exit(2);
+if (![process.env.BRIDGE_GENERIC_LAUNCHER, process.env.BRIDGE_CELLULAR_LAUNCHER].includes(target)) process.exit(2);
 NODE
 check_rc=$?
 set -e
