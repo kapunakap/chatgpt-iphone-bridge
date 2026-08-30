@@ -185,7 +185,7 @@ await startIphoneBridgeServer({
 });
 ```
 
-The bridge package version is `0.2.0-beta.1`; consumers should use an exact version.
+The bridge package version is `0.2.0-beta.2`; consumers should use an exact version.
 
 ## Security
 

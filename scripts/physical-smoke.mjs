@@ -48,7 +48,7 @@ const transport = new StdioClientTransport({
   ...(transportEnvironment ? { env: transportEnvironment } : {}),
   stderr: "pipe",
 });
-const client = new Client({ name: "chatgpt-iphone-bridge-physical-smoke", version: "0.2.0-beta.1" });
+const client = new Client({ name: "chatgpt-iphone-bridge-physical-smoke", version: "0.2.0-beta.2" });
 let activeSessionId = null;
 let activeOperation = null;
 

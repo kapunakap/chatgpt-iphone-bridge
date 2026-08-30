@@ -23,7 +23,7 @@ function enabledPrivilegedTools() {
 export class IosSessionSafetyPlugin {
   constructor() {
     this.name = "openai-local-iphone-policy";
-    this.version = "0.2.0-beta.1";
+    this.version = "0.2.0-beta.2";
   }
 
   async beforeCall(ctx) {
