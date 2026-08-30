@@ -1,13 +1,15 @@
 #!/usr/bin/env node
 
 import { spawn } from "node:child_process";
+import fs from "node:fs/promises";
 import { createInterface } from "node:readline";
+import os from "node:os";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "..");
-const launcher = path.join(scriptDir, "appium-mcp-current.sh");
+const launcher = process.env.APPIUM_BRIDGE_LAUNCHER ?? path.join(scriptDir, "appium-mcp-current.sh");
 const requiredTools = new Set([
   "select_device",
   "appium_prepare_ios_real_device",
@@ -15,12 +17,18 @@ const requiredTools = new Set([
   "appium_screenshot",
   "appium_orientation",
   "appium_perform_actions",
+  "appium_prepare_ios_real_device_async",
+  "appium_create_session_async",
 ]);
-const expectedToolCount = 31;
+for (const name of (process.env.APPIUM_BRIDGE_REQUIRED_TOOLS ?? "").split(",").filter(Boolean)) {
+  requiredTools.add(name);
+}
+const expectedToolCount = Number(process.env.APPIUM_BRIDGE_EXPECTED_TOOLS ?? "33");
+const artifactRoot = await fs.mkdtemp(path.join(os.tmpdir(), "iphone-bridge-smoke-"));
 
 const child = spawn(launcher, [], {
   cwd: repoRoot,
-  env: process.env,
+  env: { ...process.env, APPIUM_BRIDGE_ARTIFACT_ROOT: artifactRoot },
   stdio: ["pipe", "pipe", "pipe"],
 });
 
@@ -85,6 +93,21 @@ async function main() {
     throw new Error(`Expected ${expectedToolCount} Appium tools, found ${names.size}`);
   }
 
+  const listedSessions = await request(3, "tools/call", {
+    name: "appium_session_management",
+    arguments: { action: "list" },
+  });
+  if (listedSessions?.isError) throw new Error("session list failed during smoke test");
+
+  const missingOperation = await request(4, "tools/call", {
+    name: "appium_create_session_async",
+    arguments: { action: "status" },
+  });
+  if (missingOperation?.isError !== true) throw new Error("missing async operation should fail closed");
+  if (missingOperation?.structuredContent?.error?.code !== "UNKNOWN_OPERATION") {
+    throw new Error("async structuredContent was not preserved through plugin hooks");
+  }
+
   console.log(`server=${initialized.serverInfo.name}`);
   console.log(`protocol=${initialized.protocolVersion}`);
   console.log(`tools=${names.size}`);
@@ -108,4 +131,5 @@ try {
     });
   });
   if (child.exitCode === null) child.kill("SIGKILL");
+  await fs.rm(artifactRoot, { recursive: true, force: true });
 }

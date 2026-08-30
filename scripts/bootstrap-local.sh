@@ -2,6 +2,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ALIAS="${TUNNEL_ALIAS:-local-iphone-bridge}"
 
 fail() {
   printf 'ERROR: %s\n' "$*" >&2
@@ -11,9 +12,9 @@ fail() {
 printf '== chatgpt-iphone-bridge bootstrap ==\n'
 [[ "$(uname -s)" == "Darwin" ]] || fail "This bridge requires macOS."
 
-command -v node >/dev/null 2>&1 || fail "Node.js 22 or newer is required."
+command -v node >/dev/null 2>&1 || fail "Node.js 24 or newer is required."
 node_major="$(node -p 'Number(process.versions.node.split(".")[0])')"
-[[ "$node_major" -ge 22 ]] || fail "Node.js 22 or newer is required; active version is $(node --version)."
+[[ "$node_major" -ge 24 ]] || fail "Node.js 24 or newer is required; active version is $(node --version)."
 command -v npm >/dev/null 2>&1 || fail "npm is required."
 printf 'node=%s\n' "$(node --version)"
 
@@ -24,16 +25,29 @@ xcode_major="${xcode_version%%.*}"
 printf 'xcode=%s\n' "$xcode_version"
 
 if ! command -v tunnel-client >/dev/null 2>&1; then
-  command -v brew >/dev/null 2>&1 || fail "Install Homebrew, then install openai/tools/tunnel-client."
+  [[ "${BRIDGE_INSTALL_TUNNEL_CLIENT:-0}" == "1" ]] || fail "Install openai/tools/tunnel-client, or rerun with BRIDGE_INSTALL_TUNNEL_CLIENT=1."
+  command -v brew >/dev/null 2>&1 || fail "Homebrew is required for the requested tunnel-client installation."
   brew install openai/tools/tunnel-client
 fi
 printf 'tunnel_client=%s\n' "$(tunnel-client --version)"
 
+set +e
+runtime_json="$(tunnel-client runtimes --json status "$ALIAS" 2>/dev/null)"
+runtime_rc=$?
+set -e
+if [[ "$runtime_rc" -eq 0 ]] && BRIDGE_RUNTIME_JSON="$runtime_json" node <<'NODE'
+const status = JSON.parse(process.env.BRIDGE_RUNTIME_JSON);
+process.exit(status.process_running === true ? 0 : 1);
+NODE
+then
+  fail "Managed runtime $ALIAS is active. Stop it before changing dependencies."
+fi
+
 printf '\n== Installing pinned Appium MCP ==\n'
 cd "$REPO_ROOT"
-npm install --save-exact appium-mcp@1.92.7
+npm ci
 installed_version="$(node -p 'require("./node_modules/appium-mcp/package.json").version')"
-[[ "$installed_version" == "1.92.7" ]] || fail "Expected appium-mcp 1.92.7, found $installed_version."
+[[ "$installed_version" == "1.92.11" ]] || fail "Expected appium-mcp 1.92.11, found $installed_version."
 printf 'appium_mcp=%s\n' "$installed_version"
 
 printf '\n== Direct MCP smoke ==\n'

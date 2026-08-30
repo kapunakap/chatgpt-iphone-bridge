@@ -1,21 +1,47 @@
 {
   "name": "chatgpt-iphone-bridge",
-  "version": "0.1.0",
+  "version": "0.2.0-beta.1",
   "private": true,
   "description": "Local iPhone Safari automation for ChatGPT through OpenAI Secure MCP Tunnel and Appium MCP.",
   "license": "MIT",
   "type": "module",
+  "exports": {
+    ".": "./src/index.mjs",
+    "./server": "./src/bridge-server.mjs",
+    "./session-lifecycle": "./src/async-session-plugin.mjs"
+  },
+  "files": [
+    "src/",
+    "scripts/",
+    "fixtures/",
+    "patches/",
+    "security/",
+    "README.md",
+    "SECURITY.md",
+    "LICENSE"
+  ],
   "engines": {
-    "node": ">=22"
+    "node": ">=24"
   },
   "scripts": {
-    "test:unit": "node --test scripts/*.test.mjs",
+    "postinstall": "node scripts/apply-patches.mjs",
+    "test:unit": "node --test src/*.test.mjs scripts/*.test.mjs",
     "smoke": "node scripts/appium-mcp-smoke.mjs",
-    "check": "bash -n scripts/*.sh && for file in scripts/*.mjs; do node --check \"$file\"; done && npm run test:unit && npm run smoke",
+    "check": "bash -n scripts/*.sh && for file in src/*.mjs scripts/*.mjs; do node --check \"$file\"; done && npm run test:unit && npm run smoke",
+    "doctor": "bash scripts/doctor.sh",
+    "fixture": "node scripts/serve-fixture.mjs",
+    "smoke:physical": "node scripts/physical-smoke.mjs",
+    "prune": "bash scripts/prune-artifacts.sh",
+    "status": "bash scripts/status.sh",
     "tool": "node scripts/appium-mcp-tool.mjs",
     "test": "npm run check"
   },
   "dependencies": {
-    "appium-mcp": "1.92.7"
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "applesign": "5.0.1",
+    "appium-mcp": "1.92.11",
+    "appium-webdriveragent": "16.9.0",
+    "patch-package": "8.0.1",
+    "zod": "4.4.3"
   }
 }

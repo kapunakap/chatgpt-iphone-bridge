@@ -1,0 +1,26 @@
+diff --git a/node_modules/appium-xcuitest-driver/build/lib/device/device-connections-factory.js b/node_modules/appium-xcuitest-driver/build/lib/device/device-connections-factory.js
+index cadef64..cc9e87b 100644
+--- a/node_modules/appium-xcuitest-driver/build/lib/device/device-connections-factory.js
++++ b/node_modules/appium-xcuitest-driver/build/lib/device/device-connections-factory.js
+@@ -81,7 +81,7 @@ class LegacyPortForwarder {
+                 reject(new Error('Local server is not initialized'));
+             }
+         });
+-        this.localServer.listen(this.localport);
++        this.localServer.listen(this.localport, '127.0.0.1');
+         try {
+             await listeningPromise;
+         }
+diff --git a/node_modules/appium-xcuitest-driver/lib/device/device-connections-factory.ts b/node_modules/appium-xcuitest-driver/lib/device/device-connections-factory.ts
+index 997cb29..fbc0866 100644
+--- a/node_modules/appium-xcuitest-driver/lib/device/device-connections-factory.ts
++++ b/node_modules/appium-xcuitest-driver/lib/device/device-connections-factory.ts
+@@ -108,7 +108,7 @@ class LegacyPortForwarder implements PortForwarder {
+         reject(new Error('Local server is not initialized'));
+       }
+     });
+-    this.localServer.listen(this.localport);
++    this.localServer.listen(this.localport, '127.0.0.1');
+     try {
+       await listeningPromise;
+     } catch (e) {

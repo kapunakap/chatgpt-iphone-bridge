@@ -5,7 +5,7 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DEVICE_UDID="${IOS_DEVICE_UDID:-}"
 TEAM_ID="${DEVELOPMENT_TEAM:-}"
 BUNDLE_ID_BASE="${WDA_BUNDLE_ID_BASE:-com.kapunakap.chatgptiphonebridge.WebDriverAgentRunner}"
-WDA_PROJECT="$REPO_ROOT/node_modules/appium-webdriveragent/WebDriverAgent.xcodeproj"
+WDA_PROJECT="$(node --input-type=module -e 'import { BOOTSTRAP_PATH } from "appium-webdriveragent"; console.log(`${BOOTSTRAP_PATH}/WebDriverAgent.xcodeproj`)')"
 
 fail() {
   printf 'ERROR: %s\n' "$*" >&2
@@ -19,8 +19,8 @@ fail() {
 [[ -d "$WDA_PROJECT" ]] || fail "Bundled WebDriverAgent project not found. Run bash scripts/bootstrap-local.sh."
 
 derived_data="$(mktemp -d "${TMPDIR:-/tmp}/chatgpt-iphone-bridge-wda.XXXXXX")"
-printf 'derived_data=%s\n' "$derived_data"
-printf 'runner_bundle_id=%s.xctrunner\n' "$BUNDLE_ID_BASE"
+trap 'rm -rf "$derived_data"' EXIT
+printf 'Preparing a temporary signed WDA build.\n'
 
 xcodebuild \
   -project "$WDA_PROJECT" \

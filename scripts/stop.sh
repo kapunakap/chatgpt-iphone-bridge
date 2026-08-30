@@ -1,12 +1,55 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ALIAS="${TUNNEL_ALIAS:-local-iphone}"
+ALIAS="${TUNNEL_ALIAS:-local-iphone-bridge}"
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+EXPECTED_LAUNCHER="$REPO_ROOT/scripts/appium-mcp-current.sh"
+ARTIFACT_ROOT="${APPIUM_BRIDGE_ARTIFACT_ROOT:-$HOME/Library/Application Support/chatgpt-iphone-bridge}"
 
 command -v tunnel-client >/dev/null 2>&1 || {
   printf 'ERROR: tunnel-client is not installed.\n' >&2
   exit 1
 }
 
-printf 'Delete the active Appium session from ChatGPT first when possible.\n'
-tunnel-client runtimes --json stop "$ALIAS"
+set +e
+status_json="$(tunnel-client runtimes --json status "$ALIAS" 2>/dev/null)"
+status_rc=$?
+set -e
+[[ "$status_rc" -eq 0 ]] || {
+  printf 'Runtime %s is already stopped or absent.\n' "$ALIAS"
+  exit 0
+}
+
+set +e
+BRIDGE_STATUS_JSON="$status_json" BRIDGE_EXPECTED_LAUNCHER="$EXPECTED_LAUNCHER" node <<'NODE'
+const status = JSON.parse(process.env.BRIDGE_STATUS_JSON);
+if (status.process_running !== true) process.exit(3);
+const target = String(status?.process?.target_value ?? '').replace(/^['"]|['"]$/g, '');
+if (target !== process.env.BRIDGE_EXPECTED_LAUNCHER) process.exit(2);
+NODE
+check_rc=$?
+set -e
+if [[ "$check_rc" -eq 3 ]]; then
+  printf 'Runtime %s is already stopped.\n' "$ALIAS"
+  exit 0
+fi
+[[ "$check_rc" -eq 0 ]] || {
+  printf 'ERROR: Alias %s targets a different launcher; refusing to stop it.\n' "$ALIAS" >&2
+  exit 1
+}
+
+tunnel-client runtimes --json stop "$ALIAS" >/dev/null
+for _ in {1..30}; do
+  current="$(tunnel-client runtimes --json status "$ALIAS" 2>/dev/null || true)"
+  if BRIDGE_STATUS_JSON="$current" node -e 'const s=JSON.parse(process.env.BRIDGE_STATUS_JSON || "{}"); process.exit(s.process_running === true ? 1 : 0)'; then
+    if [[ -d "$ARTIFACT_ROOT/runtime/session.lock" ]]; then
+      printf 'ERROR: Runtime stopped but the session lease remains; cleanup is not proven.\n' >&2
+      exit 2
+    fi
+    printf 'BRIDGE_STOPPED=1\n'
+    exit 0
+  fi
+  sleep 1
+done
+printf 'ERROR: Runtime did not stop within 30 seconds.\n' >&2
+exit 2

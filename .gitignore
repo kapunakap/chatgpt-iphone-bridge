@@ -10,4 +10,11 @@ artifacts/
 *.provisionprofile
 *.p12
 *.cer
+*.ipa
+*.xcarchive/
+*.pem
+*.key
+*.tgz
 runtime-api-key
+coverage/
+npm-audit.json

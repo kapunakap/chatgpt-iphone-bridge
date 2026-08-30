@@ -2,38 +2,64 @@
 
 ## Trust boundary
 
-The OpenAI Secure MCP Tunnel is the only remote transport. Appium MCP remains a local stdio process and no public Appium listener is created.
+OpenAI Secure MCP Tunnel is the only remote transport. Appium MCP remains a local stdio process and no public Appium listener is created.
 
-Anyone who can invoke the connected ChatGPT app may be able to:
+Anyone who can invoke the connected ChatGPT app may be able to control the unlocked phone and interact with signed-in Safari pages. Treat workspace and app access as temporary physical access to the device.
 
-- control the connected iPhone;
-- read visible Mobile Safari content;
-- interact with signed-in websites;
-- install and launch WebDriverAgent during device preparation.
+Stop the managed runtime when it is not being used.
 
-Treat access to the ChatGPT app and workspace as equivalent to temporary physical control of the unlocked phone.
+## Enforced defaults
 
-## Secrets
+Unless the local operator explicitly enables unsafe full Appium behavior, the bridge:
 
-- Keep the tunnel runtime API key outside the repository in a user-owned mode-`600` file.
-- Never commit API keys, provisioning profiles, certificates, WDA artifacts, device IDs, logs, screenshots, or recordings.
-- Do not paste the runtime key into issue comments, screenshots, or command-line arguments.
-- Review `git status`, tracked files, and staged diffs before every commit.
+- selects only real iOS devices;
+- requires non-blocking preparation and Safari session creation;
+- rejects remote Appium URLs and attached sessions;
+- rejects Android, simulators, and native-app capabilities;
+- accepts only the selected device and successfully prepared WDA path;
+- disables Appium relaxed security;
+- blocks file, clipboard, application, permissions, geolocation, settings, and device-control tools unless named locally;
+- binds legacy WDA port forwarding to `127.0.0.1`;
+- permits only one preparation or owned session across local bridge processes.
+
+These controls reduce accidental exposure. They do not provide per-user authorization inside one ChatGPT workspace.
+
+## Secrets and artifacts
+
+- Keep runtime API keys outside the repository in a user-owned mode-`600` file.
+- Keep artifact directories mode `700` and files mode `600`.
+- Never commit keys, provisioning profiles, certificates, signed WDA packages, device IDs, logs, screenshots, or recordings.
+- Do not put secrets or device identifiers in command-line arguments.
+- Review tracked and staged files before every commit.
+
+The launcher uses a private umask. `npm run prune` removes old screenshots only from the configured bridge screenshot directory.
 
 ## Web content
 
-Safari pages are untrusted input. A page can contain prompt injection intended to make the AI operate outside the requested task. Keep tool use scoped to the named URL and visible test flow.
+Safari pages are untrusted input. A page can contain prompt injection intended to make the AI operate outside the requested test. Keep the tool request scoped to the named URL and visible flow.
 
-## Session cleanup
+The included fixture is for controlled acceptance only. Its LAN binding is opt-in.
 
-Delete Appium-owned sessions before stopping the tunnel. Stop the `local-iphone` managed runtime when the bridge is not in use, and disconnect the ChatGPT app if access should be revoked.
+## Lifecycle
+
+- Use the async lifecycle tools for long preparation and creation calls.
+- Cancelled or timed-out creation deletes any late-created owned session.
+- A cleanup failure retains the cross-process lease and blocks new work.
+- Disconnect and stop attempt owned-session cleanup before releasing the lease.
+- `stop.sh` refuses to stop a managed alias that targets a different launcher.
 
 ## Dependency review
 
-The exact Appium MCP pin brings a large upstream mobile-automation dependency tree. Run `npm audit --omit=dev` before release, review each reachable advisory, and do not use `npm audit fix --force`: npm may replace the requested Appium MCP version with an older incompatible release.
+The exact Appium MCP dependency brings a large mobile-automation and signing tree. The repository applies reviewed patches for:
 
-As of 2026-08-28, the pinned production tree reports 15 advisories: 1 low, 1 moderate, and 13 high. They are in Appium MCP or its transitive mobile-automation, signing, WebDriver, and test-tooling dependencies. No compatible automatic remediation is currently available while preserving `appium-mcp@1.92.7`; review the current upstream report before use.
+- complete MCP result preservation and hook cleanup;
+- disabled relaxed security and redacted capability logging;
+- loopback-only legacy WDA forwarding.
+
+As of 2026-08-30, `npm audit --omit=dev` reports 15 transitive advisories: 1 low, 1 moderate, and 13 high. The exact reviewed package set and review deadline are tracked in `security/audit-baseline.json`; CI fails when the set changes or the review expires.
+
+Do not run `npm audit fix --force`: npm currently proposes an incompatible Appium MCP downgrade. A beta release must keep the advisory review current and must not add a critical advisory.
 
 ## Reporting
 
-Do not include runtime keys, signing material, device identifiers, or authenticated page content in public reports.
+Do not include runtime keys, signing material, device identifiers, session IDs, authenticated page content, screenshots, or raw diagnostic logs in public reports.

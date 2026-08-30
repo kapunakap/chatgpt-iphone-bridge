@@ -1,0 +1,242 @@
+diff --git a/node_modules/appium-mcp/dist/plugin.d.ts b/node_modules/appium-mcp/dist/plugin.d.ts
+index 90bc6ad..66435ae 100644
+--- a/node_modules/appium-mcp/dist/plugin.d.ts
++++ b/node_modules/appium-mcp/dist/plugin.d.ts
+@@ -39,10 +39,9 @@ export interface ToolCallContext {
+ /**
+  * Tool result shape plugins may return to short-circuit or modify a tool call.
+  */
+-export interface ToolCallResult {
++export type ToolCallResult = ContentResult & {
+     isError: boolean;
+-    content: ContentResult['content'];
+-}
++};
+ /**
+  * Extension point for composing app-specific behavior into Appium MCP.
+  */
+diff --git a/node_modules/appium-mcp/dist/plugin.js b/node_modules/appium-mcp/dist/plugin.js
+index 45d6dd4..f594e6f 100644
+--- a/node_modules/appium-mcp/dist/plugin.js
++++ b/node_modules/appium-mcp/dist/plugin.js
+@@ -205,36 +205,51 @@ export class PluginManager {
+                     args: (args || {}),
+                     session: sessionCtx,
+                 };
++                const enteredPlugins = [];
++                const runAfterHooks = async (initialResult) => {
++                    let result = initialResult;
++                    for (const plugin of enteredPlugins.toReversed()) {
++                        if (typeof plugin.afterCall !== 'function') {
++                            continue;
++                        }
++                        const modified = await plugin.afterCall(toolCtx, result);
++                        if (modified != null) {
++                            result = { ...result, ...modified };
++                        }
++                    }
++                    return result;
++                };
+                 for (const plugin of this.pluginMap.values()) {
++                    enteredPlugins.push(plugin);
+                     if (typeof plugin.beforeCall !== 'function') {
+                         continue;
+                     }
+                     const override = await plugin.beforeCall(toolCtx);
+                     if (override != null) {
+-                        return {
+-                            content: override.content,
+-                            isError: override.isError,
+-                        };
++                        return await runAfterHooks(override);
+                     }
+                 }
+-                const rawResult = (await toolDef.execute(args, mcpCtx));
+-                let hookResult = {
+-                    isError: rawResult.isError ?? false,
+-                    content: rawResult.content,
+-                };
+-                for (const plugin of this.pluginMap.values()) {
+-                    if (typeof plugin.afterCall !== 'function') {
+-                        continue;
++                let rawResult;
++                try {
++                    rawResult = (await toolDef.execute(args, mcpCtx));
++                }
++                catch (error) {
++                    const message = error instanceof Error ? error.message : String(error);
++                    try {
++                        await runAfterHooks({
++                            isError: true,
++                            content: [{ type: 'text', text: message }],
++                        });
+                     }
+-                    const modified = await plugin.afterCall(toolCtx, hookResult);
+-                    if (modified != null) {
+-                        hookResult = modified;
++                    catch (hookError) {
++                        log.error('Plugin afterCall cleanup failed while unwinding a tool error:', hookError);
+                     }
++                    throw error;
+                 }
+-                return {
+-                    content: hookResult.content,
+-                    isError: hookResult.isError,
+-                };
++                return await runAfterHooks({
++                    ...rawResult,
++                    isError: rawResult.isError ?? false,
++                });
+             };
+             return originalAddTool({ ...toolDef, execute: wrappedExecute });
+         });
+diff --git a/node_modules/appium-mcp/dist/tools/session/create-session.js b/node_modules/appium-mcp/dist/tools/session/create-session.js
+index b63984d..a068a4f 100644
+--- a/node_modules/appium-mcp/dist/tools/session/create-session.js
++++ b/node_modules/appium-mcp/dist/tools/session/create-session.js
+@@ -258,7 +258,7 @@ export async function createSessionAction(args) {
+                 ...customCapabilities,
+             };
+         }
+-        log.info(`Creating new ${platform.toUpperCase()} session with capabilities:`, JSON.stringify(finalCapabilities, null, 2));
++        log.info(`Creating new ${platform.toUpperCase()} session`);
+         let sessionId;
+         if (remoteServerUrl) {
+             try {
+@@ -368,12 +368,12 @@ async function loadCapabilitiesConfig() {
+ function createDriverForPlatform(platform) {
+     if (platform === 'android') {
+         const driver = new AndroidUiautomator2Driver({});
+-        driver.relaxedSecurityEnabled = true;
++        driver.relaxedSecurityEnabled = process.env.APPIUM_MCP_RELAXED_SECURITY === 'true';
+         return driver;
+     }
+     if (platform === 'ios') {
+         const driver = new XCUITestDriver({});
+-        driver.relaxedSecurityEnabled = true;
++        driver.relaxedSecurityEnabled = process.env.APPIUM_MCP_RELAXED_SECURITY === 'true';
+         return driver;
+     }
+     throw new Error(`Unsupported platform: ${platform}. Please choose 'android' or 'ios'.`);
+diff --git a/node_modules/appium-mcp/src/plugin.ts b/node_modules/appium-mcp/src/plugin.ts
+index c34ccbf..7190bc5 100644
+--- a/node_modules/appium-mcp/src/plugin.ts
++++ b/node_modules/appium-mcp/src/plugin.ts
+@@ -49,10 +49,9 @@ export interface ToolCallContext {
+ /**
+  * Tool result shape plugins may return to short-circuit or modify a tool call.
+  */
+-export interface ToolCallResult {
++export type ToolCallResult = ContentResult & {
+   isError: boolean;
+-  content: ContentResult['content'];
+-}
++};
+ 
+ /**
+  * Extension point for composing app-specific behavior into Appium MCP.
+@@ -352,39 +351,52 @@ export class PluginManager {
+           session: sessionCtx,
+         };
+ 
++        const enteredPlugins: AppiumMcpPlugin[] = [];
++        const runAfterHooks = async (initialResult: ToolCallResult): Promise<ToolCallResult> => {
++          let result = initialResult;
++          for (const plugin of enteredPlugins.toReversed()) {
++            if (typeof plugin.afterCall !== 'function') {
++              continue;
++            }
++            const modified = await plugin.afterCall(toolCtx, result);
++            if (modified != null) {
++              result = {...result, ...modified};
++            }
++          }
++          return result;
++        };
++
+         for (const plugin of this.pluginMap.values()) {
++          enteredPlugins.push(plugin);
+           if (typeof plugin.beforeCall !== 'function') {
+             continue;
+           }
+           const override = await plugin.beforeCall(toolCtx);
+           if (override != null) {
+-            return {
+-              content: override.content,
+-              isError: override.isError,
+-            } as ContentResult;
++            return (await runAfterHooks(override)) as ContentResult;
+           }
+         }
+ 
+-        const rawResult = (await toolDef.execute(args, mcpCtx)) as ContentResult;
+-        let hookResult: ToolCallResult = {
+-          isError: rawResult.isError ?? false,
+-          content: rawResult.content as ToolCallResult['content'],
+-        };
+-
+-        for (const plugin of this.pluginMap.values()) {
+-          if (typeof plugin.afterCall !== 'function') {
+-            continue;
+-          }
+-          const modified = await plugin.afterCall(toolCtx, hookResult);
+-          if (modified != null) {
+-            hookResult = modified;
++        let rawResult: ContentResult;
++        try {
++          rawResult = (await toolDef.execute(args, mcpCtx)) as ContentResult;
++        } catch (error) {
++          const message = error instanceof Error ? error.message : String(error);
++          try {
++            await runAfterHooks({
++              isError: true,
++              content: [{type: 'text', text: message}],
++            });
++          } catch (hookError) {
++            log.error('Plugin afterCall cleanup failed while unwinding a tool error:', hookError);
+           }
++          throw error;
+         }
+ 
+-        return {
+-          content: hookResult.content,
+-          isError: hookResult.isError,
+-        } as ContentResult;
++        return (await runAfterHooks({
++          ...rawResult,
++          isError: rawResult.isError ?? false,
++        })) as ContentResult;
+       };
+ 
+       return originalAddTool({...toolDef, execute: wrappedExecute});
+diff --git a/node_modules/appium-mcp/src/tools/session/create-session.ts b/node_modules/appium-mcp/src/tools/session/create-session.ts
+index bf09bdc..cb71971 100644
+--- a/node_modules/appium-mcp/src/tools/session/create-session.ts
++++ b/node_modules/appium-mcp/src/tools/session/create-session.ts
+@@ -334,10 +334,7 @@ export async function createSessionAction(args: {
+       } as Capabilities;
+     }
+ 
+-    log.info(
+-      `Creating new ${platform.toUpperCase()} session with capabilities:`,
+-      JSON.stringify(finalCapabilities, null, 2),
+-    );
++    log.info(`Creating new ${platform.toUpperCase()} session`);
+     let sessionId;
+     if (remoteServerUrl) {
+       try {
+@@ -480,12 +477,12 @@ async function loadCapabilitiesConfig(): Promise<CapabilitiesConfig> {
+ function createDriverForPlatform(platform: 'android' | 'ios'): any {
+   if (platform === 'android') {
+     const driver = new AndroidUiautomator2Driver({} as any);
+-    driver.relaxedSecurityEnabled = true;
++    driver.relaxedSecurityEnabled = process.env.APPIUM_MCP_RELAXED_SECURITY === 'true';
+     return driver;
+   }
+   if (platform === 'ios') {
+     const driver = new XCUITestDriver({} as any);
+-    driver.relaxedSecurityEnabled = true;
++    driver.relaxedSecurityEnabled = process.env.APPIUM_MCP_RELAXED_SECURITY === 'true';
+     return driver;
+   }
+   throw new Error(`Unsupported platform: ${platform}. Please choose 'android' or 'ios'.`);

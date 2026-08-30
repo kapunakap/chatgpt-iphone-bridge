@@ -1,0 +1,28 @@
+{
+  "reviewedAt": "2026-08-30",
+  "reviewBy": "2026-09-30",
+  "counts": {
+    "low": 1,
+    "moderate": 1,
+    "high": 13,
+    "critical": 0,
+    "total": 15
+  },
+  "packages": {
+    "@puppeteer/browsers": "high",
+    "@wdio/config": "high",
+    "@wdio/utils": "high",
+    "appium-mcp": "high",
+    "applesign": "high",
+    "deepmerge-ts": "high",
+    "diff": "low",
+    "extract-zip": "high",
+    "js-yaml": "high",
+    "minimatch": "high",
+    "mocha": "high",
+    "nanoid": "high",
+    "serialize-javascript": "high",
+    "uuid": "moderate",
+    "webdriver": "high"
+  }
+}

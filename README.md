@@ -1,8 +1,8 @@
 # ChatGPT iPhone Bridge
 
-Control Mobile Safari on a real USB-connected iPhone from ChatGPT through OpenAI Secure MCP Tunnel and [Appium MCP](https://github.com/appium/appium-mcp).
+Control Mobile Safari on one USB-connected iPhone from ChatGPT through OpenAI Secure MCP Tunnel and Appium MCP.
 
-This is an unofficial, experimental local bridge. It opens no public inbound port and does not expose Appium directly to the internet.
+This is an unofficial beta candidate. It opens no public inbound port and does not expose Appium directly to the internet.
 
 ## Architecture
 
@@ -10,146 +10,156 @@ This is an unofficial, experimental local bridge. It opens no public inbound por
 ChatGPT
   -> OpenAI Secure MCP Tunnel
   -> tunnel-client on your Mac
-  -> Appium MCP over stdio
+  -> Local iPhone MCP server
   -> XCUITest / WebDriverAgent
   -> USB-connected iPhone
   -> Mobile Safari
 ```
 
+The bridge preserves the upstream Appium catalog and adds two non-blocking lifecycle tools:
+
+- `appium_prepare_ios_real_device_async`
+- `appium_create_session_async`
+
+Both support `start`, `status`, and `cancel`. Only one preparation or owned session may run across local bridge processes.
+
 ## Requirements
 
 - macOS with Xcode 16 or newer
-- Node.js 22 or newer
-- a paired iPhone with Developer Mode enabled
-- **Settings -> Apps -> Safari -> Advanced -> Web Inspector** enabled on the iPhone
-- **Settings -> Apps -> Safari -> Advanced -> Remote Automation** enabled on the iPhone
-- an Apple ID/Personal Team in Xcode
-- a valid development profile whose bundle ID is `*` or ends in `.xctrunner`
-- an OpenAI Secure MCP Tunnel associated with the target Platform organization and ChatGPT workspace
-- a runtime API key with Tunnels Read + Use
+- Node.js 24 or newer
+- a paired, trusted iPhone with Developer Mode enabled
+- Safari Web Inspector and Remote Automation enabled
+- an Apple Development identity and suitable WDA provisioning profile
+- OpenAI Secure MCP Tunnel access with Tunnels Read + Use
 - ChatGPT developer-mode app access
 
 Official tunnel documentation: [OpenAI Secure MCP Tunnel](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels).
 
-## 1. Bootstrap
+## Install
 
 ```bash
 bash scripts/bootstrap-local.sh
 ```
 
-The repository pins `appium-mcp` to `1.92.7`. The bootstrap validates the toolchain, installs the exact package, runs a direct MCP handshake, lists Xcode devices, and reports signing readiness.
+Bootstrap uses the committed lockfile, applies the reviewed dependency patches, checks Xcode, and runs the direct MCP contract. It refuses to replace dependencies while its managed runtime is active.
 
-If signing is missing, add the Apple ID in **Xcode -> Settings -> Accounts** and select the Personal Team. Then generate the exact WDA runner profile from the bundled project:
+If signing is missing, add your Apple ID under **Xcode -> Settings -> Accounts**, then create the WDA runner profile:
 
 ```bash
-IOS_DEVICE_UDID=<connected UDID> \
-DEVELOPMENT_TEAM=<Apple team ID> \
+IOS_DEVICE_UDID=<connected-udid> \
+DEVELOPMENT_TEAM=<apple-team-id> \
 bash scripts/prepare-ios-signing.sh
 ```
 
-The default runner profile bundle ID is `com.kapunakap.chatgptiphonebridge.WebDriverAgentRunner.xctrunner`. Override the base with `WDA_BUNDLE_ID_BASE` when needed; omit the `.xctrunner` suffix because Xcode adds it to the runner.
+Device IDs, team IDs, profile UUIDs, signed WDA files, screenshots, and runtime keys must stay outside the repository.
 
-Then rerun:
+## Connect
 
-```bash
-bash scripts/ios-signing-status.sh
-```
-
-Before the first WDA launch, trust the Developer App on the iPhone under **Settings -> General -> VPN & Device Management**.
-
-If Safari session creation reports that the remote debugger did not respond, recheck both **Web Inspector** and **Remote Automation**, dismiss any Safari modal or first-run screen, and keep the phone unlocked. `about:blank` must work before testing an application URL.
-
-## 2. Provision a dedicated tunnel
-
-Create a tunnel in OpenAI Platform and associate it with the ChatGPT workspace that will use it. Store its runtime key outside this repository:
+Store the runtime key in a user-owned mode-`600` file:
 
 ```bash
 mkdir -p "$HOME/.config/chatgpt-iphone-bridge"
 chmod 700 "$HOME/.config/chatgpt-iphone-bridge"
 umask 077
-cat > "$HOME/.config/chatgpt-iphone-bridge/runtime-api-key"
-# paste the runtime key, then press Ctrl-D
+read -rs CONTROL_PLANE_KEY
+printf '%s' "$CONTROL_PLANE_KEY" > "$HOME/.config/chatgpt-iphone-bridge/runtime-api-key"
+unset CONTROL_PLANE_KEY
 chmod 600 "$HOME/.config/chatgpt-iphone-bridge/runtime-api-key"
 ```
 
-Never pass the raw key in a command-line argument or commit it.
-
-## 3. Connect
+Connect a dedicated tunnel:
 
 ```bash
 CONTROL_PLANE_TUNNEL_ID=tunnel_... bash scripts/connect-tunnel.sh
 ```
 
-Defaults:
+The default managed alias is `local-iphone-bridge`. Connect refuses to replace a running alias that targets another launcher and rolls back a runtime that it starts but cannot make ready.
 
-- tunnel alias: `local-iphone`
-- runtime key: `~/.config/chatgpt-iphone-bridge/runtime-api-key`
-- screenshots: `~/Library/Application Support/chatgpt-iphone-bridge/screenshots`
+Create a ChatGPT developer-mode app named **Local iPhone**, choose **Tunnel**, select this dedicated tunnel, and use **No Auth** for the MCP app. Workspace and tunnel access therefore equal temporary control of the unlocked phone.
 
-## 4. Create the ChatGPT app
-
-In ChatGPT developer-mode Plugins:
-
-1. Create an app named **Local iPhone**.
-2. Choose **Tunnel**.
-3. Select the dedicated iPhone tunnel.
-4. Choose **No Auth** for the MCP app itself.
-
-Local health is not hosted acceptance. Confirm that ChatGPT can discover and call the Appium tools before trusting the bridge.
-
-## 5. Prepare the real device
-
-Ask ChatGPT to use Local iPhone in this order:
+## ChatGPT workflow
 
 1. Call `select_device` with `platform=ios` and `iosDeviceType=real`.
-2. Call `appium_prepare_ios_real_device` without a profile UUID.
-3. Choose a returned profile marked `recommendedForWda=true`.
-4. Call the preparation tool again with that profile UUID.
-5. Create a session with `platform=ios` and a JSON capabilities string containing:
+2. Call `appium_prepare_ios_real_device_async` with `action=start` and the selected UDID.
+3. Poll `action=status`. Pick a recommended profile from the discovery result.
+4. Start preparation again with that profile UUID and poll until `state=ready`.
+5. Combine the returned `capabilitiesHint` with:
 
 ```json
 {
   "browserName": "Safari",
-  "appium:usePreinstalledWDA": true,
-  "appium:prebuiltWDAPath": "<returned path>",
-  "appium:wdaLaunchTimeout": 30000,
-  "appium:initialDeeplinkUrl": "<exact test URL>"
+  "appium:safariInitialUrl": "https://example.test/"
 }
 ```
 
-Use the exact returned values. After successful real-device selection or preparation, the bridge injects the runtime-only iPhone UDID when a real-WDA session omits `appium:udid`. An explicit UDID is preserved. Do not save device IDs, team IDs, profile UUIDs, or WDA paths in this repository.
+6. Call `appium_create_session_async` with `action=start`, then poll until `state=ready`.
+7. Use normal Appium interaction tools with the returned session.
+8. Delete the owned session when finished.
+
+Blocking preparation and creation, remote Appium URLs, session attachment, simulators, Android, native apps, and unprepared WDA paths fail closed.
+
+Privileged tools are disabled by default. Enable only named tools locally:
+
+```bash
+APPIUM_BRIDGE_PRIVILEGED_TOOLS=appium_mobile_clipboard,appium_geolocation \
+CONTROL_PLANE_TUNNEL_ID=tunnel_... \
+bash scripts/connect-tunnel.sh
+```
+
+Set `APPIUM_BRIDGE_UNSAFE_FULL_APPIUM=true` only in a fully trusted local environment.
 
 ## Operations
 
 ```bash
 npm test
-bash scripts/status.sh
+npm run status
+npm run doctor
+npm run prune
 bash scripts/stop.sh
 ```
 
-For a local one-shot MCP tool call, pass arguments on stdin so device-specific values do not appear in process arguments:
+- `status` is fast and redacted.
+- `doctor` checks the toolchain, MCP contract, device, signing, and managed runtime.
+- `prune` removes screenshots older than seven days; override with `APPIUM_BRIDGE_RETENTION_DAYS`.
+- `stop` is idempotent and refuses to stop an alias that targets another launcher.
+
+## Neutral Safari fixture
+
+The repository includes a small generic page for simulator and physical-device acceptance:
 
 ```bash
-printf '%s\n' '{"platform":"ios","iosDeviceType":"real"}' \
-  | npm run tool -- select_device
+npm run fixture
 ```
 
-Delete the active Appium session before stopping the tunnel when possible.
+It binds to loopback by default. To make it reachable from an iPhone on a trusted LAN:
 
-## Session safety
+```bash
+FIXTURE_HOST=0.0.0.0 npm run fixture
+```
 
-This bridge composes the default server through the supported `appium-mcp/core` plugin API without adding or replacing Appium tools. It keeps the upstream 31-tool interface and adds only runtime safeguards:
+Do not expose the fixture beyond the intended test network.
 
-- a real-device selection remains available for later WDA session creation;
-- explicit iPhone UDIDs are preserved;
-- simulator and non-iOS session capabilities are unchanged;
-- concurrent or duplicate Appium-owned session creation fails closed.
+If local VPN or firewall policy blocks inbound LAN HTTP, the physical smoke can use another neutral HTTPS page by setting `BRIDGE_FIXTURE_URL`, `BRIDGE_FIXTURE_SELECTOR`, and `BRIDGE_FIXTURE_MARKER` explicitly.
 
-Device identifiers remain in memory only and are never written to the repository.
+## Extension API
+
+External packages can compose additional Appium plugins without copying the lifecycle implementation:
+
+```js
+import { startIphoneBridgeServer } from "chatgpt-iphone-bridge/server";
+
+await startIphoneBridgeServer({
+  plugins: [myPlugin],
+  serverName: "My Local iPhone Tools",
+  policy: { allowTools: [/^(?!prepare_ios_simulator$).*$/] }
+});
+```
+
+The bridge package version is `0.2.0-beta.1`; consumers should use an exact version.
 
 ## Security
 
-This bridge can control a real unlocked phone and any signed-in Safari sessions. Read [SECURITY.md](SECURITY.md) before connecting it.
+This bridge can control a real unlocked phone and signed-in Safari sessions. Read [SECURITY.md](SECURITY.md) before connecting it.
 
 ## License
 
