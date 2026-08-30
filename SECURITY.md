@@ -22,12 +22,13 @@ Unless the local operator explicitly enables unsafe full Appium behavior, the br
 - binds legacy WDA port forwarding to `127.0.0.1`;
 - permits only one preparation or owned session across local bridge processes.
 
-These controls reduce accidental exposure. They do not provide per-user authorization inside one ChatGPT workspace.
+These controls reduce accidental exposure. They do not provide per-user authorization inside one ChatGPT workspace. Queue operation IDs are unguessable bearer handles: keep each returned handle inside its requesting ChatGPT task and do not publish it.
 
 ## Secrets and artifacts
 
 - Keep runtime API keys outside the repository in a user-owned mode-`600` file.
 - Keep artifact directories mode `700` and files mode `600`.
+- The persistent waiting-room file is stored under the private runtime artifact directory with mode `600`. It contains validated queued capabilities so requests can resume after restart; the MCP status payload and local queue-status command never print those capabilities.
 - Never commit keys, provisioning profiles, certificates, signed WDA packages, device IDs, logs, screenshots, or recordings.
 - Do not put secrets or device identifiers in command-line arguments.
 - Review tracked and staged files before every commit.
@@ -44,6 +45,8 @@ The included fixture is for controlled acceptance only. Its LAN binding is opt-i
 
 - Use the async lifecycle tools for long preparation and creation calls.
 - Cancelled or timed-out creation deletes any late-created owned session.
+- Waiting Safari requests are FIFO, require a status heartbeat within ten minutes, and may be cancelled with their private operation ID.
+- On restart, queued requests require a fresh confirmation heartbeat; starting or active requests are marked interrupted rather than assumed safe.
 - A cleanup failure retains the cross-process lease and blocks new work.
 - Disconnect and stop attempt owned-session cleanup before releasing the lease.
 - `stop.sh` refuses to stop a managed alias that targets a different launcher.

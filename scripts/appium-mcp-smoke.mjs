@@ -104,7 +104,7 @@ async function main() {
     arguments: { action: "status" },
   });
   if (missingOperation?.isError !== true) throw new Error("missing async operation should fail closed");
-  if (missingOperation?.structuredContent?.error?.code !== "UNKNOWN_OPERATION") {
+  if (missingOperation?.structuredContent?.error?.code !== "INVALID_ARGUMENTS") {
     throw new Error("async structuredContent was not preserved through plugin hooks");
   }
 

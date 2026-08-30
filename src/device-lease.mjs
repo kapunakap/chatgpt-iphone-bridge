@@ -1,14 +1,8 @@
 import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 
-function defaultArtifactRoot() {
-  return (
-    process.env.APPIUM_BRIDGE_ARTIFACT_ROOT ??
-    path.join(os.homedir(), "Library", "Application Support", "chatgpt-iphone-bridge")
-  );
-}
+import { defaultArtifactRoot } from "./session-queue-store.mjs";
 
 function processIsAlive(pid) {
   if (!Number.isInteger(pid) || pid <= 0) return false;

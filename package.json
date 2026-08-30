@@ -33,6 +33,7 @@
     "smoke:physical": "node scripts/physical-smoke.mjs",
     "prune": "bash scripts/prune-artifacts.sh",
     "status": "bash scripts/status.sh",
+    "queue:status": "node scripts/queue-status.mjs",
     "tool": "node scripts/appium-mcp-tool.mjs",
     "test": "npm run check"
   },

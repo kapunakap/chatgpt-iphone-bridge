@@ -12,6 +12,8 @@ const DEFAULT_INSTRUCTIONS = [
   "Select the real iPhone before preparation or session creation.",
   "Use appium_prepare_ios_real_device_async start/status/cancel instead of the blocking preparation tool.",
   "Use appium_create_session_async start/status/cancel instead of appium_session_management action=create.",
+  "Give each Safari session request a unique clientRequestId and reuse it only to retry that same request.",
+  "Keep the returned operationId private, pass it on every status or cancel call, and poll queued work within ten minutes to retain its FIFO spot.",
   "Delete the owned session when testing is complete.",
 ];
 

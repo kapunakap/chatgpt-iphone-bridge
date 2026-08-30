@@ -46,8 +46,15 @@ async function call(name, args, timeout = 30_000) {
 
 async function startAndPoll(name, args, deadlineMs) {
   const startedAt = Date.now();
-  const started = json(await call(name, { action: "start", ...args }, 5000), `${name} start`);
-  if (!started.operationId || started.state !== "starting") throw new Error(`${name} did not start`);
+  const startArgs = {
+    action: "start",
+    ...args,
+    ...(name === "appium_create_session_async" ? { clientRequestId: `physical-smoke-${Date.now()}` } : {}),
+  };
+  const started = json(await call(name, startArgs, 5000), `${name} start`);
+  if (!started.operationId || !new Set(["queued", "starting"]).has(started.state)) {
+    throw new Error(`${name} did not enter the lifecycle`);
+  }
   if (Date.now() - startedAt >= 2000) throw new Error(`${name} start exceeded two seconds`);
   activeOperation = { name, id: started.operationId };
 
@@ -62,7 +69,7 @@ async function startAndPoll(name, args, deadlineMs) {
       activeOperation = null;
       return status;
     }
-    if (!new Set(["starting", "cancelling"]).has(status.state)) {
+    if (!new Set(["queued", "starting", "cancelling"]).has(status.state)) {
       throw new Error(`${name} ended in ${status.state}: ${JSON.stringify(status.error ?? {})}`);
     }
   }

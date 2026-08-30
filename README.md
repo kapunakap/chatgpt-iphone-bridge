@@ -21,7 +21,7 @@ The bridge preserves the upstream Appium catalog and adds two non-blocking lifec
 - `appium_prepare_ios_real_device_async`
 - `appium_create_session_async`
 
-Both support `start`, `status`, and `cancel`. Only one preparation or owned session may run across local bridge processes.
+Both support `start`, `status`, and `cancel`. Safari session requests use a private, persistent FIFO waiting room. Only one preparation or owned session may run across local bridge processes, while up to 20 Safari requests may wait in the managed bridge runtime.
 
 ## Requirements
 
@@ -81,8 +81,8 @@ Create a ChatGPT developer-mode app named **Local iPhone**, choose **Tunnel**, s
 
 1. Call `select_device` with `platform=ios` and `iosDeviceType=real`.
 2. Call `appium_prepare_ios_real_device_async` with `action=start` and the selected UDID.
-3. Poll `action=status`. Pick a recommended profile from the discovery result.
-4. Start preparation again with that profile UUID and poll until `state=ready`.
+3. Poll `action=status` with the returned `operationId`. Pick a recommended profile from the discovery result.
+4. Start preparation again with that profile UUID and poll with its `operationId` until `state=ready`. Selecting the same iPhone again preserves this shared ready preparation.
 5. Combine the returned `capabilitiesHint` with:
 
 ```json
@@ -92,9 +92,15 @@ Create a ChatGPT developer-mode app named **Local iPhone**, choose **Tunnel**, s
 }
 ```
 
-6. Call `appium_create_session_async` with `action=start`, then poll until `state=ready`.
-7. Use normal Appium interaction tools with the returned session.
-8. Delete the owned session when finished.
+6. Call `appium_create_session_async` with `action=start`, the capabilities, and a unique `clientRequestId`. Reuse that client request ID only when retrying the same start call.
+7. Keep the returned `operationId` private. Poll `action=status` with it until `state=ready`. A waiting response includes its one-based position, queue depth, reason, heartbeat deadline, and recommended poll interval. Every waiting status call renews the 10-minute heartbeat.
+8. Use `action=cancel` with the same operation ID to leave the queue or clean up an active request.
+9. Use normal Appium interaction tools with the returned session.
+10. Delete the owned session when finished so the next live request can start.
+
+Queued requests survive a managed bridge restart in FIFO order. A restored request must send one fresh status heartbeat before it can start. Work that was already starting or active is marked `interrupted` because Appium session survival cannot be proven.
+
+Waiting requests expire after ten minutes without a status heartbeat and cannot be revived. Active sessions have no automatic expiry.
 
 Blocking preparation and creation, remote Appium URLs, session attachment, simulators, Android, native apps, and unprepared WDA paths fail closed.
 
@@ -113,12 +119,14 @@ Set `APPIUM_BRIDGE_UNSAFE_FULL_APPIUM=true` only in a fully trusted local enviro
 ```bash
 npm test
 npm run status
+npm run queue:status
 npm run doctor
 npm run prune
 bash scripts/stop.sh
 ```
 
 - `status` is fast and redacted.
+- `queue:status` is local-only and shows the redacted FIFO order and private operation handles without capabilities, URLs, device IDs, or session IDs.
 - `doctor` checks the toolchain, MCP contract, device, signing, and managed runtime.
 - `prune` removes screenshots older than seven days; override with `APPIUM_BRIDGE_RETENTION_DAYS`.
 - `stop` is idempotent and refuses to stop an alias that targets another launcher.

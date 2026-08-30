@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 const execFileAsync = promisify(execFile);
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 const stopScript = path.join(repoRoot, "scripts", "stop.sh");
+const queueStatusScript = path.join(repoRoot, "scripts", "queue-status.mjs");
 
 async function fakeEnvironment(t, status, statusExit = 0) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "iphone-bridge-ops-"));
@@ -65,4 +66,36 @@ test("stop refuses a running alias with a different launcher", async (t) => {
   );
   const calls = await fs.readFile(fake.calls, "utf8");
   assert.doesNotMatch(calls, / stop /);
+});
+
+test("queue status shows local handles but redacts private session inputs", async (t) => {
+  const fake = await fakeEnvironment(t, {});
+  const runtime = path.join(fake.env.APPIUM_BRIDGE_ARTIFACT_ROOT, "runtime");
+  await fs.mkdir(runtime, { recursive: true });
+  await fs.writeFile(
+    path.join(runtime, "session-queue.json"),
+    `${JSON.stringify({
+      version: 1,
+      savedAt: 1,
+      queue: ["operation-private"],
+      operations: [
+        {
+          id: "operation-private",
+          clientRequestId: "caller-secret",
+          state: "queued",
+          enqueuedAt: 1,
+          args: {
+            capabilities: {
+              "appium:udid": "private-device",
+              "appium:safariInitialUrl": "https://private.example.test/",
+            },
+          },
+        },
+      ],
+    })}\n`,
+    { mode: 0o600 },
+  );
+  const result = await execFileAsync(process.execPath, [queueStatusScript], { env: fake.env });
+  assert.match(result.stdout, /position=1 operation_id=operation-private state=queued/);
+  assert.doesNotMatch(result.stdout, /caller-secret|private-device|private\.example/);
 });
