@@ -34,6 +34,11 @@
     "prune": "bash scripts/prune-artifacts.sh",
     "status": "bash scripts/status.sh",
     "queue:status": "node scripts/queue-status.mjs",
+    "runtime:monitor:check": "node scripts/runtime-monitor.mjs check",
+    "runtime:monitor:status": "node scripts/runtime-monitor.mjs status",
+    "runtime:monitor:install": "node scripts/runtime-monitor-service.mjs install",
+    "runtime:monitor:uninstall": "node scripts/runtime-monitor-service.mjs uninstall",
+    "runtime:repair": "node scripts/runtime-repair.mjs",
     "tool": "node scripts/appium-mcp-tool.mjs",
     "test": "npm run check"
   },

@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { createSessionAction, deleteSessionAction } from "./appium-private.mjs";
 import { DeviceLease } from "./device-lease.mjs";
+import { assertRealIphoneUnlocked } from "./ios-device-state.mjs";
 import { SessionQueueStore } from "./session-queue-store.mjs";
 import { runWorkerTool } from "./worker-tool.mjs";
 
@@ -28,6 +29,36 @@ const CREATE_PERSISTED_STATES = [
   "interrupted",
   "cancelled",
 ];
+
+const WDA_LAUNCH_FAILURE = /Unable to launch WebDriverAgent|Failed to start the preinstalled WebDriverAgent|Connection was refused to port/i;
+
+function classifyCreateFailure(error) {
+  const message = error instanceof Error ? error.message : String(error);
+  if (error?.code === "DEVICE_LOCKED" || error?.code === "DEVICE_STATE_UNAVAILABLE") {
+    return { code: error.code, message, retryable: error.retryable !== false };
+  }
+  if (WDA_LAUNCH_FAILURE.test(message)) return { code: "WDA_LAUNCH_FAILED", message, retryable: true };
+  return { code: "OPERATION_FAILED", message, retryable: true };
+}
+
+function abortableDelay(ms, signal) {
+  return new Promise((resolve, reject) => {
+    const finish = () => {
+      signal?.removeEventListener("abort", abort);
+      resolve();
+    };
+    const timer = setTimeout(finish, ms);
+    const abort = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", abort);
+      const error = new Error("operation was cancelled");
+      error.name = "AbortError";
+      reject(error);
+    };
+    if (signal?.aborted) return abort();
+    signal?.addEventListener("abort", abort, { once: true });
+  });
+}
 
 const prepareSchema = z.object({
   action: z.enum(["start", "status", "cancel"]),
@@ -178,9 +209,12 @@ export class AsyncSessionPlugin {
     this.now = options.now ?? Date.now;
     this.makeId = options.makeId ?? randomUUID;
     this.schedule = options.schedule ?? queueMicrotask;
+    this.checkDeviceReady = options.checkDeviceReady ?? assertRealIphoneUnlocked;
+    this.retryDelay = options.retryDelay ?? abortableDelay;
     this.prepareTimeoutMs = options.prepareTimeoutMs ?? 10 * 60_000;
-    this.createTimeoutMs = options.createTimeoutMs ?? 90_000;
+    this.createTimeoutMs = options.createTimeoutMs ?? 150_000;
     this.cleanupTimeoutMs = options.cleanupTimeoutMs ?? 15_000;
+    this.wdaRetryDelayMs = options.wdaRetryDelayMs ?? 3_000;
     this.queueHeartbeatMs = options.queueHeartbeatMs ?? 10 * 60_000;
     this.queuePollAfterMs = options.queuePollAfterMs ?? 30_000;
     this.queueRetryMs = options.queueRetryMs ?? 2_000;
@@ -447,7 +481,11 @@ export class AsyncSessionPlugin {
     }
     capabilities["appium:udid"] = this.selectedUdid;
     capabilities["appium:deviceName"] ||= "iPhone";
-    capabilities["appium:wdaLaunchTimeout"] ||= 30_000;
+    const requestedWdaLaunchTimeout = Number(capabilities["appium:wdaLaunchTimeout"] ?? 0);
+    capabilities["appium:wdaLaunchTimeout"] =
+      Number.isFinite(requestedWdaLaunchTimeout) && requestedWdaLaunchTimeout >= 60_000
+        ? requestedWdaLaunchTimeout
+        : 60_000;
     validateInitialUrl(capabilities);
 
     if (this.requirePreparation) {
@@ -694,7 +732,7 @@ export class AsyncSessionPlugin {
       operation.cancelRequested = true;
       operation.cleanupPending = true;
       operation.error = {
-        code: "OPERATION_TIMEOUT",
+        code: "LIFECYCLE_TIMEOUT",
         message: `create exceeded ${this.createTimeoutMs} ms`,
         retryable: true,
       };
@@ -705,16 +743,48 @@ export class AsyncSessionPlugin {
 
   async runCreateOperation(operation) {
     const beforeIds = new Set(this.core.listSessions().map((session) => session.sessionId));
-    let result;
-    let createError;
+    let result = null;
+    let failure = null;
+    let sessionId = null;
+
     try {
-      result = await this.createSession({ platform: "ios", capabilities: operation.args.capabilities });
+      await this.checkDeviceReady(operation.args.capabilities["appium:udid"], {
+        signal: operation.controller?.signal,
+        timeoutMs: 15_000,
+      });
+      for (let attempt = 1; attempt <= 2; attempt += 1) {
+        let createError = null;
+        result = null;
+        try {
+          result = await this.createSession({ platform: "ios", capabilities: operation.args.capabilities });
+        } catch (error) {
+          createError = error;
+        }
+        const newOwned = this.core.listSessions()
+          .filter((session) => session.ownership === "owned" && !beforeIds.has(session.sessionId));
+        sessionId = newOwned.length === 1 ? newOwned[0].sessionId : null;
+        failure = createError
+          ?? (result?.isError ? new Error(resultText(result) || "Safari session creation failed") : null)
+          ?? (!sessionId ? new Error("session creation completed without exactly one new owned session") : null);
+        if (!failure) break;
+
+        const classified = classifyCreateFailure(failure);
+        const shouldRetry =
+          attempt === 1 &&
+          classified.code === "WDA_LAUNCH_FAILED" &&
+          !sessionId &&
+          !operation.cancelRequested &&
+          operation.state === "starting";
+        if (!shouldRetry) break;
+        await this.checkDeviceReady(operation.args.capabilities["appium:udid"], {
+          signal: operation.controller?.signal,
+          timeoutMs: 15_000,
+        });
+        await this.retryDelay(this.wdaRetryDelayMs, operation.controller?.signal);
+      }
     } catch (error) {
-      createError = error;
+      failure = error;
     }
-    const newOwned = this.core.listSessions()
-      .filter((session) => session.ownership === "owned" && !beforeIds.has(session.sessionId));
-    const sessionId = newOwned.length === 1 ? newOwned[0].sessionId : null;
 
     try {
       if (operation.cancelRequested || ["timed_out", "cancelling"].includes(operation.state)) {
@@ -735,9 +805,6 @@ export class AsyncSessionPlugin {
           await this.persistLocked();
         });
       } else {
-        const failure = createError
-          ?? (result?.isError ? new Error(resultText(result) || "Safari session creation failed") : null)
-          ?? (!sessionId ? new Error("session creation completed without exactly one new owned session") : null);
         if (failure) {
           if (sessionId) {
             try {
@@ -748,16 +815,13 @@ export class AsyncSessionPlugin {
             }
           }
           await this.withStateLock(async () => {
+            const classified = classifyCreateFailure(failure);
             operation.state = "failed";
             operation.stage = "finished";
             operation.updatedAt = this.now();
             operation.cleanupPending = false;
             operation.args = null;
-            operation.error = {
-              code: "OPERATION_FAILED",
-              message: failure instanceof Error ? failure.message : String(failure),
-              retryable: true,
-            };
+            operation.error = classified;
             await this.persistLocked();
           });
         } else {

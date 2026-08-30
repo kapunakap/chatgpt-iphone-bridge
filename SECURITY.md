@@ -8,6 +8,8 @@ Anyone who can invoke the connected ChatGPT app may be able to control the unloc
 
 Stop the managed runtime when it is not being used.
 
+The optional user LaunchAgent is alert-only. It probes runtime health every 60 seconds and never starts or reconnects the tunnel. `npm run runtime:repair` remains an explicit local operator action and refuses a canonical alias configured for another launcher.
+
 ## Enforced defaults
 
 Unless the local operator explicitly enables unsafe full Appium behavior, the bridge:
@@ -29,6 +31,7 @@ These controls reduce accidental exposure. They do not provide per-user authoriz
 - Keep runtime API keys outside the repository in a user-owned mode-`600` file.
 - Keep artifact directories mode `700` and files mode `600`.
 - The persistent waiting-room file is stored under the private runtime artifact directory with mode `600`. It contains validated queued capabilities so requests can resume after restart; the MCP status payload and local queue-status command never print those capabilities.
+- The runtime monitor stores only redacted health booleans, failure names, and the expected local launcher path in a mode-`600` state file. It stores no keys, device IDs, capabilities, URLs, or session IDs.
 - Never commit keys, provisioning profiles, certificates, signed WDA packages, device IDs, logs, screenshots, or recordings.
 - Do not put secrets or device identifiers in command-line arguments.
 - Review tracked and staged files before every commit.
@@ -44,6 +47,7 @@ The included fixture is for controlled acceptance only. Its LAN binding is opt-i
 ## Lifecycle
 
 - Use the async lifecycle tools for long preparation and creation calls.
+- Session creation fails before Appium startup when the selected device reports a locked state. A clean preinstalled-WDA launch failure may retry once inside the same private async operation.
 - Cancelled or timed-out creation deletes any late-created owned session.
 - Waiting Safari requests are FIFO, require a status heartbeat within ten minutes, and may be cancelled with their private operation ID.
 - On restart, queued requests require a fresh confirmation heartbeat; starting or active requests are marked interrupted rather than assumed safe.

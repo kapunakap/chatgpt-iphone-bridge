@@ -5,21 +5,47 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const fixtureUrl = process.env.BRIDGE_FIXTURE_URL;
-const fixtureSelector = process.env.BRIDGE_FIXTURE_SELECTOR ?? "#bridge-ready";
-const fixtureMarker = process.env.BRIDGE_FIXTURE_MARKER ?? "BRIDGE_FIXTURE_READY";
-if (!fixtureUrl) throw new Error("Set BRIDGE_FIXTURE_URL to the neutral fixture URL reachable from the iPhone");
-const parsedFixtureUrl = new URL(fixtureUrl);
+import { chooseReachableFixture } from "../src/fixture-preflight.mjs";
+
+const primaryFixtureUrl = process.env.BRIDGE_FIXTURE_URL;
+if (!primaryFixtureUrl) throw new Error("Set BRIDGE_FIXTURE_URL to the neutral fixture URL reachable from the iPhone");
+const parsedFixtureUrl = new URL(primaryFixtureUrl);
 if (!new Set(["http:", "https:"]).has(parsedFixtureUrl.protocol)) {
   throw new Error("BRIDGE_FIXTURE_URL must use http or https");
 }
+const fallbackUrl = process.env.BRIDGE_FIXTURE_FALLBACK_URL;
+if (fallbackUrl && (!process.env.BRIDGE_FIXTURE_FALLBACK_SELECTOR || !process.env.BRIDGE_FIXTURE_FALLBACK_MARKER)) {
+  throw new Error("Fallback URL requires BRIDGE_FIXTURE_FALLBACK_SELECTOR and BRIDGE_FIXTURE_FALLBACK_MARKER");
+}
+const selectedFixture = await chooseReachableFixture(
+  {
+    url: primaryFixtureUrl,
+    selector: process.env.BRIDGE_FIXTURE_SELECTOR ?? "#bridge-ready",
+    marker: process.env.BRIDGE_FIXTURE_MARKER ?? "BRIDGE_FIXTURE_READY",
+  },
+  fallbackUrl
+    ? {
+        url: fallbackUrl,
+        selector: process.env.BRIDGE_FIXTURE_FALLBACK_SELECTOR,
+        marker: process.env.BRIDGE_FIXTURE_FALLBACK_MARKER,
+      }
+    : null,
+);
+const fixtureUrl = selectedFixture.fixture.url;
+const fixtureSelector = selectedFixture.fixture.selector;
+const fixtureMarker = selectedFixture.fixture.marker;
+console.log(`fixture_source=${selectedFixture.source}`);
+if (selectedFixture.primaryError) console.log(`fixture_fallback_reason=${selectedFixture.primaryError}`);
 
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 const launcher = path.join(repoRoot, "scripts", "appium-mcp-current.sh");
+const transportEnvironment = process.env.APPIUM_BRIDGE_ARTIFACT_ROOT
+  ? { APPIUM_BRIDGE_ARTIFACT_ROOT: process.env.APPIUM_BRIDGE_ARTIFACT_ROOT }
+  : undefined;
 const transport = new StdioClientTransport({
   command: launcher,
   cwd: repoRoot,
-  env: { APPIUM_BRIDGE_ARTIFACT_ROOT: process.env.APPIUM_BRIDGE_ARTIFACT_ROOT ?? "" },
+  ...(transportEnvironment ? { env: transportEnvironment } : {}),
   stderr: "pipe",
 });
 const client = new Client({ name: "chatgpt-iphone-bridge-physical-smoke", version: "0.2.0-beta.1" });
@@ -107,7 +133,7 @@ try {
   const creation = await startAndPoll(
     "appium_create_session_async",
     { capabilities: JSON.stringify(capabilities) },
-    90_000,
+    150_000,
   );
   activeSessionId = creation.sessionId;
   if (!activeSessionId) throw new Error("Safari session became ready without a session ID");

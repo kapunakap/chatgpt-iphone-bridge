@@ -102,6 +102,8 @@ Queued requests survive a managed bridge restart in FIFO order. A restored reque
 
 Waiting requests expire after ten minutes without a status heartbeat and cannot be revived. Active sessions have no automatic expiry.
 
+Before creation, the bridge verifies that the selected iPhone is unlocked. Preinstalled WDA gets a 60-second launch window and one internal retry after a clean launch failure; the same async operation and `clientRequestId` remain in use. Terminal failures distinguish `DEVICE_LOCKED`, `DEVICE_STATE_UNAVAILABLE`, `WDA_LAUNCH_FAILED`, and `LIFECYCLE_TIMEOUT`.
+
 Blocking preparation and creation, remote Appium URLs, session attachment, simulators, Android, native apps, and unprepared WDA paths fail closed.
 
 Privileged tools are disabled by default. Enable only named tools locally:
@@ -120,6 +122,9 @@ Set `APPIUM_BRIDGE_UNSAFE_FULL_APPIUM=true` only in a fully trusted local enviro
 npm test
 npm run status
 npm run queue:status
+npm run runtime:monitor:install
+npm run runtime:monitor:status
+npm run runtime:repair
 npm run doctor
 npm run prune
 bash scripts/stop.sh
@@ -127,7 +132,10 @@ bash scripts/stop.sh
 
 - `status` is fast and redacted.
 - `queue:status` is local-only and shows the redacted FIFO order and private operation handles without capabilities, URLs, device IDs, or session IDs.
-- `doctor` checks the toolchain, MCP contract, device, signing, and managed runtime.
+- `runtime:monitor:install` installs an alert-only user LaunchAgent that checks the canonical runtime every 60 seconds. Install it only from the stable checkout path; it never reconnects automatically and can be removed with `npm run runtime:monitor:uninstall`.
+- `runtime:monitor:status` checks `process_running`, `healthy`, `ready`, and the exact launcher without changing runtime state.
+- `runtime:repair` is the only monitor-related reconnect path. It reuses the canonical alias and stored tunnel ID, validates the mode-`600` runtime key, and refuses another launcher.
+- `doctor` checks the toolchain, MCP contract, model-based real-device presence, signing, and managed runtime. A user-defined device name does not affect detection.
 - `prune` removes screenshots older than seven days; override with `APPIUM_BRIDGE_RETENTION_DAYS`.
 - `stop` is idempotent and refuses to stop an alias that targets another launcher.
 
@@ -147,7 +155,21 @@ FIXTURE_HOST=0.0.0.0 npm run fixture
 
 Do not expose the fixture beyond the intended test network.
 
-If local VPN or firewall policy blocks inbound LAN HTTP, the physical smoke can use another neutral HTTPS page by setting `BRIDGE_FIXTURE_URL`, `BRIDGE_FIXTURE_SELECTOR`, and `BRIDGE_FIXTURE_MARKER` explicitly.
+Physical smoke probes the controlled page before consuming an iPhone session. If local VPN or firewall policy blocks inbound LAN HTTP, configure an explicit neutral HTTPS fallback:
+
+```bash
+BRIDGE_FIXTURE_URL=http://192.168.1.10:4173/ \
+BRIDGE_FIXTURE_FALLBACK_URL=https://example.com/ \
+BRIDGE_FIXTURE_FALLBACK_SELECTOR=h1 \
+BRIDGE_FIXTURE_FALLBACK_MARKER='Example Domain' \
+npm run smoke:physical
+```
+
+The smoke output reports `fixture_source=controlled` or `fixture_source=fallback`; it never silently substitutes a page.
+
+## ChatGPT app release gate
+
+`npm run smoke` verifies that the live MCP tool schema contains `clientRequestId`. After any tool name, description, or input-schema change, refresh **Local iPhone** under ChatGPT plugin settings and open a fresh chat. Do not declare the update complete until the managed schema also shows `clientRequestId` and a ChatGPT-native physical Safari run ends with a screenshot, zero sessions, and an empty queue. Add required arguments only through a compatibility window or a versioned tool.
 
 ## Extension API
 

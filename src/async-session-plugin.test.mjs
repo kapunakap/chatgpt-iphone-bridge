@@ -73,6 +73,8 @@ function setup(options = {}) {
         },
       ],
     }),
+    checkDeviceReady: async () => ({ locked: false }),
+    retryDelay: async () => {},
     createSession: async (args) => {
       state.createArgs.push(args);
       const sessionId = `session-${++session}`;
@@ -205,6 +207,18 @@ test("create requires private request and operation handles", async () => {
   assert.equal((await create.execute({ action: "start", capabilities: capabilities() })).isError, true);
   assert.equal((await create.execute({ action: "status" })).isError, true);
   assert.equal((await create.execute({ action: "cancel" })).isError, true);
+});
+
+test("Safari creation enforces the 60-second WDA launch minimum", async () => {
+  const { plugin, tools, state } = setup({ requirePreparation: false });
+  await select(plugin);
+  await startCreate(tools, "wda-timeout-minimum", {
+    browserName: "Safari",
+    "appium:wdaLaunchTimeout": 30_000,
+  });
+  await settle();
+  assert.equal(state.createArgs[0].capabilities["appium:wdaLaunchTimeout"], 60_000);
+  assert.equal(new AsyncSessionPlugin().createTimeoutMs, 150_000);
 });
 
 test("create still rejects native, mismatched, unprepared, and unsafe capabilities", async () => {
@@ -399,6 +413,98 @@ test("external lease contention leaves the head request queued and retryable", a
   assert.equal(waiting.waitingReason, "external_lease");
 });
 
+test("locked device fails before Safari creation with a specific retryable error", async () => {
+  const locked = new Error("Unlock the selected iPhone before creating Safari");
+  locked.code = "DEVICE_LOCKED";
+  locked.retryable = true;
+  const { plugin, tools, state } = setup({
+    requirePreparation: false,
+    checkDeviceReady: async () => {
+      throw locked;
+    },
+  });
+  await select(plugin);
+  const started = payload(await startCreate(tools, "locked-request", { browserName: "Safari" }));
+  await settle();
+  const status = payload(
+    await tools.get("appium_create_session_async").execute({ action: "status", operationId: started.operationId }),
+  );
+  assert.equal(status.state, "failed");
+  assert.deepEqual(status.error, {
+    code: "DEVICE_LOCKED",
+    message: "Unlock the selected iPhone before creating Safari",
+    retryable: true,
+  });
+  assert.equal(state.createArgs.length, 0);
+});
+
+test("clean WDA launch failure retries once inside the same operation", async () => {
+  let calls = 0;
+  const { plugin, tools, state } = setup({
+    requirePreparation: false,
+    createSession: async (args) => {
+      state.createArgs.push(args);
+      calls += 1;
+      if (calls === 1) {
+        return { isError: true, content: [{ type: "text", text: "Unable to launch WebDriverAgent" }] };
+      }
+      state.sessions = [{ sessionId: "retry-session", ownership: "owned" }];
+      return { content: [{ type: "text", text: "created" }] };
+    },
+  });
+  await select(plugin);
+  const started = payload(await startCreate(tools, "wda-retry", { browserName: "Safari" }));
+  await settle();
+  const status = payload(
+    await tools.get("appium_create_session_async").execute({ action: "status", operationId: started.operationId }),
+  );
+  assert.equal(status.state, "ready");
+  assert.equal(calls, 2);
+  assert.equal(status.sessionId, "retry-session");
+});
+
+test("repeated WDA launch failure is classified after one retry", async () => {
+  let calls = 0;
+  const { plugin, tools } = setup({
+    requirePreparation: false,
+    createSession: async () => {
+      calls += 1;
+      throw new Error("Failed to start the preinstalled WebDriverAgent in 60000 ms");
+    },
+  });
+  await select(plugin);
+  const started = payload(await startCreate(tools, "wda-fail", { browserName: "Safari" }));
+  await settle();
+  const status = payload(
+    await tools.get("appium_create_session_async").execute({ action: "status", operationId: started.operationId }),
+  );
+  assert.equal(status.state, "failed");
+  assert.equal(status.error.code, "WDA_LAUNCH_FAILED");
+  assert.equal(calls, 2);
+});
+
+test("WDA failure with a tracked session cleans up and never retries", async () => {
+  let calls = 0;
+  const { plugin, tools, state } = setup({
+    requirePreparation: false,
+    createSession: async () => {
+      calls += 1;
+      state.sessions = [{ sessionId: "partial-session", ownership: "owned" }];
+      return { isError: true, content: [{ type: "text", text: "Unable to launch WebDriverAgent" }] };
+    },
+  });
+  await select(plugin);
+  const started = payload(await startCreate(tools, "wda-partial", { browserName: "Safari" }));
+  await settle();
+  const status = payload(
+    await tools.get("appium_create_session_async").execute({ action: "status", operationId: started.operationId }),
+  );
+  assert.equal(status.state, "failed");
+  assert.equal(status.error.code, "WDA_LAUNCH_FAILED");
+  assert.equal(calls, 1);
+  assert.deepEqual(state.deletes, ["partial-session"]);
+});
+
 test("timed-out creation cleans a late session before advancing", async () => {
   let resolveFirst;
   const firstPending = new Promise((resolve) => {
@@ -422,6 +528,7 @@ test("timed-out creation cleans a late session before advancing", async () => {
   const second = payload(await startCreate(tools, "request-b", { browserName: "Safari" }));
   await new Promise((resolve) => setTimeout(resolve, 15));
   assert.equal(plugin.operations.get(first.operationId).state, "timed_out");
+  assert.equal(plugin.operations.get(first.operationId).error.code, "LIFECYCLE_TIMEOUT");
   state.sessions = [{ sessionId: "late-session", ownership: "owned" }];
   resolveFirst({ content: [{ type: "text", text: "created late" }] });
   await settle();
