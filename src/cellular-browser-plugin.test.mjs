@@ -176,6 +176,12 @@ test("cancelling a pending approval tells the iPhone and cannot create an orphan
     allowedOrigins: ["https://example.test"],
   });
   await settle();
+  const delivering = payload(await tools.get("iphone_browser_session").execute({ action: "status" }));
+  assert.equal(delivering.state, "requesting_approval");
+  assert.equal(delivering.userActionRequired, false);
+  assert.match(delivering.nextAction, /has not yet acknowledged/);
+  client.emit("event", "session.approval_pending", { operationId: delivering.operationId });
+  await settle();
   const waiting = payload(await tools.get("iphone_browser_session").execute({ action: "status" }));
   assert.equal(waiting.state, "awaiting_approval");
   assert.equal(waiting.userActionRequired, true);

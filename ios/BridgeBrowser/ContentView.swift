@@ -86,8 +86,7 @@ struct ContentView: View {
   @ViewBuilder private var pairedView: some View {
     if let pending = model.pendingApproval {
       approvalView(pending)
-    }
-    if model.activeSessionId != nil {
+    } else if model.activeSessionId != nil {
       browserToolbar
       BrowserView(controller: browser)
     } else {
@@ -137,6 +136,7 @@ struct ContentView: View {
     }
     .padding()
     .background(Color.orange.opacity(0.16))
+    .frame(maxWidth: .infinity, alignment: .leading)
   }
 
   private var browserToolbar: some View {

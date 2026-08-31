@@ -452,7 +452,7 @@ async function runPhysicalQa(options) {
           "cellular approval status",
         );
         if (status.state === "awaiting_approval") break;
-        if (!new Set(["awaiting_device", "awaiting_approval"]).has(status.state)) {
+        if (!new Set(["awaiting_device", "requesting_approval", "awaiting_approval"]).has(status.state)) {
           throw new Error(`Cellular session ended before approval in ${status.state}`);
         }
         await sleep(250, abortController.signal);
@@ -477,7 +477,7 @@ async function runPhysicalQa(options) {
           cellularSessionId = status.sessionId;
           break;
         }
-        if (!new Set(["awaiting_approval", "awaiting_device"]).has(status.state)) {
+        if (!new Set(["awaiting_approval", "requesting_approval", "awaiting_device"]).has(status.state)) {
           throw new Error(`Cellular session ended in ${status.state}: ${JSON.stringify(status.error ?? {})}`);
         }
         await sleep(500, abortController.signal);

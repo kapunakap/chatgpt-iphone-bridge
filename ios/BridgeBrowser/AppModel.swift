@@ -274,6 +274,9 @@ final class AppModel: ObservableObject {
     pendingApproval = PendingApproval(
       id: operationId, initialURL: initialURL, allowedOrigins: origins)
     statusMessage = "Session approval required"
+    await relay.sendEvent(
+      name: "session.approval_pending",
+      data: .object(["operationId": .string(operationId)]))
     let approved = await withCheckedContinuation { continuation in
       approvalContinuation = continuation
     }

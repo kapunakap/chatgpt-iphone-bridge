@@ -93,8 +93,13 @@ function publicOperation(operation, now) {
   if (operation.sessionId) payload.sessionId = operation.sessionId;
   if (operation.result) payload.result = operation.result;
   if (operation.error) payload.error = operation.error;
-  if (["awaiting_device", "awaiting_approval"].includes(operation.state)) {
+  if (["awaiting_device", "requesting_approval", "awaiting_approval"].includes(operation.state)) {
     payload.approvalExpiresAt = new Date(operation.approvalExpiresAt).toISOString();
+  }
+  if (operation.state === "requesting_approval") {
+    payload.userActionRequired = false;
+    payload.nextAction =
+      "Keep polling this operationId. The encrypted request was sent, but the iPhone has not yet acknowledged that its native approval UI is visible. Do not claim approval is live and do not cancel.";
   }
   if (operation.state === "awaiting_approval") {
     payload.userActionRequired = true;
@@ -260,8 +265,8 @@ export class CellularBrowserPlugin {
     const startedAt = this.now();
     const operation = {
       id: this.makeId(),
-      state: this.client.status().secureReady ? "awaiting_approval" : "awaiting_device",
-      stage: this.client.status().secureReady ? "approval" : "device_connection",
+      state: this.client.status().secureReady ? "requesting_approval" : "awaiting_device",
+      stage: this.client.status().secureReady ? "approval_delivery" : "device_connection",
       startedAt,
       updatedAt: startedAt,
       approvalExpiresAt: startedAt + this.approvalTimeoutMs,
@@ -292,9 +297,13 @@ export class CellularBrowserPlugin {
   }
 
   async requestApproval(operation) {
-    if (this.operation !== operation || operation.approvalPromise || !["awaiting_device", "awaiting_approval"].includes(operation.state)) return;
-    operation.state = "awaiting_approval";
-    operation.stage = "approval";
+    if (
+      this.operation !== operation ||
+      operation.approvalPromise ||
+      !["awaiting_device", "requesting_approval"].includes(operation.state)
+    ) return;
+    operation.state = "requesting_approval";
+    operation.stage = "approval_delivery";
     operation.updatedAt = this.now();
     const remainingMs = Math.max(1, operation.startedAt + this.approvalTimeoutMs - this.now());
     operation.approvalPromise = this.client.request(
@@ -304,7 +313,10 @@ export class CellularBrowserPlugin {
     );
     try {
       const result = await operation.approvalPromise;
-      if (this.operation !== operation || !["awaiting_approval", "awaiting_device"].includes(operation.state)) return;
+      if (
+        this.operation !== operation ||
+        !["requesting_approval", "awaiting_approval", "awaiting_device"].includes(operation.state)
+      ) return;
       if (result.state === "rejected") {
         operation.state = "rejected";
         operation.stage = "finished";
@@ -354,7 +366,10 @@ export class CellularBrowserPlugin {
   }
 
   async timeoutOperation(operation) {
-    if (this.operation !== operation || !["awaiting_device", "awaiting_approval"].includes(operation.state)) return;
+    if (
+      this.operation !== operation ||
+      !["awaiting_device", "requesting_approval", "awaiting_approval"].includes(operation.state)
+    ) return;
     operation.state = "timed_out";
     operation.stage = "finished";
     operation.error = { code: "APPROVAL_TIMEOUT", message: "The iPhone did not approve within five minutes", retryable: true };
@@ -377,7 +392,9 @@ export class CellularBrowserPlugin {
     operation.cleanupPending = true;
     operation.stage = "cleanup";
     operation.updatedAt = this.now();
-    if (!operation.sessionId && previousState === "awaiting_approval") await this.cancelRemoteApproval(operation);
+    if (!operation.sessionId && ["requesting_approval", "awaiting_approval"].includes(previousState)) {
+      await this.cancelRemoteApproval(operation);
+    }
     if (operation.sessionId && this.client.status().secureReady) {
       try {
         await this.client.request("session.stop", { sessionId: operation.sessionId }, { timeoutMs: this.commandTimeoutMs });
@@ -467,7 +484,7 @@ export class CellularBrowserPlugin {
   async onReady() {
     const operation = this.operation;
     if (!operation) return;
-    if (["awaiting_device", "awaiting_approval"].includes(operation.state)) {
+    if (["awaiting_device", "requesting_approval"].includes(operation.state)) {
       operation.approvalPromise = null;
       await this.requestApproval(operation);
       return;
@@ -512,6 +529,17 @@ export class CellularBrowserPlugin {
 
   async onEvent(name, data) {
     const operation = this.operation;
+    if (
+      name === "session.approval_pending" &&
+      operation &&
+      data?.operationId === operation.id &&
+      operation.state === "requesting_approval"
+    ) {
+      operation.state = "awaiting_approval";
+      operation.stage = "approval";
+      operation.updatedAt = this.now();
+      return;
+    }
     if (!operation || data?.sessionId !== operation.sessionId) return;
     if (name === "session.closed") {
       operation.state = "closed";
