@@ -35,14 +35,31 @@ export function prepareRoleConnection(ctx, role, replace) {
   const existing = ctx.getWebSockets(role);
   if (existing.length === 0) return null;
   if (!replace) return publicError(new Error(`${role} is already connected`), 409, "ROLE_CONNECTED");
-  for (const socket of existing) socket.close(1012, "replaced by authenticated reconnect");
+  for (const socket of existing) {
+    try {
+      socket.close(1012, "replaced by authenticated reconnect");
+    } catch {
+      // Hibernation can briefly return a socket that has already closed.
+    }
+  }
   return null;
+}
+
+export function safeSocketSend(socket, message) {
+  try {
+    socket.send(message);
+    return true;
+  } catch {
+    // Closed hibernated sockets disappear asynchronously. They must not block
+    // the healthy peer from reconnecting or receiving later messages.
+    return false;
+  }
 }
 
 export function notifyPeerReset(ctx, role) {
   const peerRole = role === "host" ? "device" : "host";
   for (const peer of ctx.getWebSockets(peerRole)) {
-    peer.send(JSON.stringify({ v: RELAY_PROTOCOL_VERSION, type: "relay.peer", online: false }));
+    safeSocketSend(peer, JSON.stringify({ v: RELAY_PROTOCOL_VERSION, type: "relay.peer", online: false }));
   }
 }
 
@@ -254,7 +271,13 @@ export class DeviceRelay {
     delete pairing.hostPublicKey;
     delete pairing.devicePublicKey;
     await this.storage.put("pairing", pairing);
-    for (const socket of this.ctx.getWebSockets()) socket.close(1008, "pairing revoked");
+    for (const socket of this.ctx.getWebSockets()) {
+      try {
+        socket.close(1008, "pairing revoked");
+      } catch {
+        // A closed hibernated socket needs no further revocation signal.
+      }
+    }
     return json({ revoked: true });
   }
 
@@ -276,7 +299,7 @@ export class DeviceRelay {
     const peerRole = role === "host" ? "device" : "host";
     server.send(JSON.stringify({ v: RELAY_PROTOCOL_VERSION, type: "relay.peer", online: this.ctx.getWebSockets(peerRole).length === 1 }));
     for (const peer of this.ctx.getWebSockets(peerRole)) {
-      peer.send(JSON.stringify({ v: RELAY_PROTOCOL_VERSION, type: "relay.peer", online: true }));
+      safeSocketSend(peer, JSON.stringify({ v: RELAY_PROTOCOL_VERSION, type: "relay.peer", online: true }));
     }
     return new Response(null, { status: 101, webSocket: client });
   }
@@ -289,7 +312,7 @@ export class DeviceRelay {
     }
     const role = socket.deserializeAttachment()?.role;
     const peerRole = role === "host" ? "device" : "host";
-    for (const peer of this.ctx.getWebSockets(peerRole)) peer.send(message);
+    for (const peer of this.ctx.getWebSockets(peerRole)) safeSocketSend(peer, message);
   }
 
   async webSocketClose(socket) {
@@ -297,7 +320,7 @@ export class DeviceRelay {
     if (this.ctx.getWebSockets(role).some((candidate) => candidate !== socket)) return;
     const peerRole = role === "host" ? "device" : "host";
     for (const peer of this.ctx.getWebSockets(peerRole)) {
-      peer.send(JSON.stringify({ v: RELAY_PROTOCOL_VERSION, type: "relay.peer", online: false }));
+      safeSocketSend(peer, JSON.stringify({ v: RELAY_PROTOCOL_VERSION, type: "relay.peer", online: false }));
     }
   }
 

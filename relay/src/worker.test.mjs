@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { PAIRING_RATE_LIMIT } from "./core.mjs";
-import worker, { DeviceRelay, PairRateLimiter, notifyPeerReset, prepareRoleConnection } from "./worker.mjs";
+import worker, { DeviceRelay, PairRateLimiter, notifyPeerReset, prepareRoleConnection, safeSocketSend } from "./worker.mjs";
 
 class MemoryStorage {
   constructor() {
@@ -254,6 +254,19 @@ test("a fresh role connection resets its existing peer even without a stale same
   ctx.sockets.device.push({ send: (message) => notices.push(JSON.parse(message)) });
   notifyPeerReset(ctx, "host");
   assert.deepEqual(notices, [{ v: 1, type: "relay.peer", online: false }]);
+});
+
+test("closed hibernated sockets cannot block a peer reconnect", () => {
+  const ctx = new FakeContext();
+  const closed = {
+    send: () => {
+      throw new Error("Can't call WebSocket send() after close().");
+    },
+  };
+  ctx.sockets.device.push(closed);
+
+  assert.equal(safeSocketSend(closed, "opaque"), false);
+  assert.doesNotThrow(() => notifyPeerReset(ctx, "host"));
 });
 
 test("closing a replaced socket does not announce the role offline", async () => {

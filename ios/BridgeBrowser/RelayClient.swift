@@ -16,6 +16,9 @@ final class RelayClient: ObservableObject {
   private var socket: URLSessionWebSocketTask?
   private var receiveTask: Task<Void, Never>?
   private var reconnectTask: Task<Void, Never>?
+  private var heartbeatTask: Task<Void, Never>?
+  private var heartbeatTimeoutTask: Task<Void, Never>?
+  private var heartbeatOutstanding = false
   private var reconnectAttempt = 0
   private var shouldReconnect = false
   private var peerStatusKnown = false
@@ -47,6 +50,7 @@ final class RelayClient: ObservableObject {
     reconnectTask = nil
     receiveTask?.cancel()
     receiveTask = nil
+    stopHeartbeat()
     socket?.cancel(with: .normalClosure, reason: nil)
     socket = nil
     resetConnectionState(notify: true)
@@ -94,11 +98,11 @@ final class RelayClient: ObservableObject {
     socket = task
     resetConnectionState(notify: false)
     task.resume()
-    relayConnected = true
     receiveTask = Task { [weak self, weak task] in
       guard let self, let task else { return }
       await self.receiveLoop(task)
     }
+    startHeartbeat(task)
   }
 
   private func receiveLoop(_ task: URLSessionWebSocketTask) async {
@@ -113,18 +117,72 @@ final class RelayClient: ObservableObject {
           throw BridgeError(
             code: "INVALID_MESSAGE", message: "Relay returned an unsupported message")
         }
+        relayConnected = true
         guard data.count <= BridgeCrypto.maxMessageBytes else {
           throw BridgeError(code: "MESSAGE_TOO_LARGE", message: "Relay message exceeded 3 MiB")
         }
         try await handle(data)
       }
     } catch {
-      guard task === socket else { return }
-      lastError = (error as? BridgeError)?.message ?? error.localizedDescription
-      socket = nil
-      resetConnectionState(notify: true)
-      scheduleReconnect()
+      failConnection(task, error: error)
     }
+  }
+
+  private func startHeartbeat(_ task: URLSessionWebSocketTask) {
+    stopHeartbeat()
+    heartbeatTask = Task { [weak self, weak task] in
+      while let self, let task, !Task.isCancelled, task === self.socket {
+        try? await Task.sleep(for: .seconds(10))
+        guard !Task.isCancelled, task === self.socket else { return }
+        self.sendHeartbeat(task)
+      }
+    }
+  }
+
+  private func sendHeartbeat(_ task: URLSessionWebSocketTask) {
+    guard task === socket, !heartbeatOutstanding else { return }
+    heartbeatOutstanding = true
+    heartbeatTimeoutTask?.cancel()
+    heartbeatTimeoutTask = Task { [weak self, weak task] in
+      try? await Task.sleep(for: .seconds(10))
+      guard let self, let task, !Task.isCancelled, task === self.socket,
+        self.heartbeatOutstanding
+      else { return }
+      self.failConnection(
+        task,
+        error: BridgeError(code: "RELAY_TIMEOUT", message: "Relay heartbeat timed out"))
+    }
+    task.sendPing { [weak self, weak task] error in
+      Task { @MainActor in
+        guard let self, let task, task === self.socket else { return }
+        self.heartbeatTimeoutTask?.cancel()
+        self.heartbeatTimeoutTask = nil
+        self.heartbeatOutstanding = false
+        if let error {
+          self.failConnection(task, error: error)
+        } else {
+          self.relayConnected = true
+        }
+      }
+    }
+  }
+
+  private func stopHeartbeat() {
+    heartbeatTask?.cancel()
+    heartbeatTask = nil
+    heartbeatTimeoutTask?.cancel()
+    heartbeatTimeoutTask = nil
+    heartbeatOutstanding = false
+  }
+
+  private func failConnection(_ task: URLSessionWebSocketTask, error: Error) {
+    guard task === socket else { return }
+    lastError = (error as? BridgeError)?.message ?? error.localizedDescription
+    socket = nil
+    task.cancel(with: .goingAway, reason: nil)
+    stopHeartbeat()
+    resetConnectionState(notify: true)
+    scheduleReconnect()
   }
 
   private func handle(_ data: Data) async throws {
