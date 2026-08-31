@@ -19,6 +19,7 @@ struct ContentView: View {
         if model.credentials == nil { pairingView } else { pairedView }
       }
       .navigationTitle("Bridge Browser")
+      .toolbar(model.activeSessionId == nil ? .visible : .hidden, for: .navigationBar)
       .sheet(isPresented: $showScanner) {
         QRCodeScanner(
           onCode: { code in
@@ -86,9 +87,11 @@ struct ContentView: View {
   @ViewBuilder private var pairedView: some View {
     if let pending = model.pendingApproval {
       approvalView(pending)
-    } else if model.activeSessionId != nil {
+    }
+    if model.activeSessionId != nil {
       browserToolbar
       BrowserView(controller: browser)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     } else {
       Form {
         Section("Connection") {
