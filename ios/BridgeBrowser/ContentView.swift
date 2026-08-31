@@ -15,7 +15,7 @@ struct ContentView: View {
   var body: some View {
     NavigationStack {
       VStack(spacing: 0) {
-        statusBar
+        if model.activeSessionId == nil { statusBar }
         if model.credentials == nil { pairingView } else { pairedView }
       }
       .navigationTitle("Bridge Browser")
