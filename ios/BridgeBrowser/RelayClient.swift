@@ -20,6 +20,7 @@ final class RelayClient: ObservableObject {
   private var shouldReconnect = false
   private var peerStatusKnown = false
   private var handshake: HandshakeState?
+  private var peerConnectionId: String?
   private var sessionKey: SymmetricKey?
   private var replayCache: [String: Int64] = [:]
   private var handler: RequestHandler?
@@ -177,12 +178,18 @@ final class RelayClient: ObservableObject {
       throw BridgeError(code: "PAIRING_REQUIRED", message: "Device is not paired")
     }
     try BridgeCrypto.verifyHello(hello, credentials: credentials)
-    if handshake == nil { await sendHello() }
+    let peerChanged = peerConnectionId != nil && peerConnectionId != hello.connectionId
+    if handshake == nil || peerChanged {
+      sessionKey = nil
+      handshake = nil
+      await sendHello()
+    }
     guard let handshake else {
       throw BridgeError(code: "HANDSHAKE_FAILED", message: "Could not create device handshake")
     }
     sessionKey = try BridgeCrypto.deriveKey(
       local: handshake, peer: hello, deviceId: credentials.deviceId)
+    peerConnectionId = hello.connectionId
     let now = BridgeCrypto.nowMs()
     let ready = SecurePayload(
       type: "secure_ready",
@@ -296,6 +303,7 @@ final class RelayClient: ObservableObject {
     secureReady = false
     sessionKey = nil
     handshake = nil
+    peerConnectionId = nil
     if notify && wasReady { onDisconnected?() }
   }
 

@@ -63,6 +63,7 @@ export class CellularRelayClient extends EventEmitter {
     this.peerStatusKnown = false;
     this.secureReady = false;
     this.handshake = null;
+    this.peerConnectionId = null;
     this.key = null;
     this.pending = new Map();
     this.replayCache = new ReplayCache({ now: this.now });
@@ -146,12 +147,18 @@ export class CellularRelayClient extends EventEmitter {
         peerSigningPublicKey: this.identity.peerSigningPublicKey,
         now: this.now,
       });
-      if (!this.handshake) this.sendHello();
+      const peerChanged = this.peerConnectionId !== null && this.peerConnectionId !== message.connectionId;
+      if (!this.handshake || peerChanged) {
+        this.key = null;
+        this.handshake = null;
+        this.sendHello();
+      }
       this.key = deriveSessionKey({
         localEcdh: this.handshake.ecdh,
         localHello: this.handshake.hello,
         peerHello: message,
       });
+      this.peerConnectionId = message.connectionId;
       this.sendSealed(this.message("secure_ready", {}, 30_000));
       return;
     }
@@ -243,6 +250,7 @@ export class CellularRelayClient extends EventEmitter {
     this.secureReady = false;
     this.key = null;
     this.handshake = null;
+    this.peerConnectionId = null;
     if (wasReady) this.emit("interrupted", this.status());
   }
 

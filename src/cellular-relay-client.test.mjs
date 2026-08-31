@@ -69,6 +69,35 @@ test("relay URL uses TLS WebSocket and strips unrelated path state", () => {
   );
 });
 
+test("a changed peer connection ID forces one fresh local hello before rekeying", async () => {
+  const { host, device, deviceId } = identities();
+  const sockets = pairSockets();
+  sockets.host.readyState = WebSocket.OPEN;
+  sockets.device.readyState = WebSocket.OPEN;
+  const sent = [];
+  sockets.device.on("message", (raw) => sent.push(JSON.parse(Buffer.from(raw).toString("utf8"))));
+
+  const client = new CellularRelayClient({ identity: host, relayUrl: "https://relay.example" });
+  client.socket = sockets.host;
+  const oldPeer = createSignedHello(device, deviceId, "device");
+  client.handshake = createSignedHello(host, deviceId, "host");
+  client.key = deriveSessionKey({
+    localEcdh: client.handshake.ecdh,
+    localHello: client.handshake.hello,
+    peerHello: oldPeer.hello,
+  });
+  client.peerConnectionId = oldPeer.hello.connectionId;
+  client.secureReady = true;
+
+  const newPeer = createSignedHello(device, deviceId, "device");
+  client.handleMessage(newPeer.hello);
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(client.peerConnectionId, newPeer.hello.connectionId);
+  assert.equal(sent.filter((message) => message.type === "hello").length, 1);
+  assert.equal(sent.filter((message) => message.type === "sealed").length, 1);
+});
+
 test("relay client completes the authenticated handshake and request round trip", async () => {
   const { host, device, deviceId } = identities();
   const sockets = pairSockets();

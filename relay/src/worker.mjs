@@ -35,6 +35,10 @@ export function prepareRoleConnection(ctx, role, replace) {
   const existing = ctx.getWebSockets(role);
   if (existing.length === 0) return null;
   if (!replace) return publicError(new Error(`${role} is already connected`), 409, "ROLE_CONNECTED");
+  const peerRole = role === "host" ? "device" : "host";
+  for (const peer of ctx.getWebSockets(peerRole)) {
+    peer.send(JSON.stringify({ v: RELAY_PROTOCOL_VERSION, type: "relay.peer", online: false }));
+  }
   for (const socket of existing) socket.close(1012, "replaced by authenticated reconnect");
   return null;
 }

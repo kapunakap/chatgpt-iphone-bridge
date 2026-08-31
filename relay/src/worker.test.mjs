@@ -230,8 +230,10 @@ test("hibernated socket attachment restores routing without in-memory content", 
 test("authenticated reconnect replaces its stale role socket while default duplicates are rejected", async () => {
   const ctx = new FakeContext();
   let closed = null;
+  const notices = [];
   const stale = { close: (code, reason) => (closed = { code, reason }) };
   ctx.sockets.device.push(stale);
+  ctx.sockets.host.push({ send: (message) => notices.push(JSON.parse(message)) });
 
   const rejected = prepareRoleConnection(ctx, "device", false);
   assert.equal(rejected.status, 409);
@@ -240,6 +242,7 @@ test("authenticated reconnect replaces its stale role socket while default dupli
 
   assert.equal(prepareRoleConnection(ctx, "device", true), null);
   assert.deepEqual(closed, { code: 1012, reason: "replaced by authenticated reconnect" });
+  assert.deepEqual(notices, [{ v: 1, type: "relay.peer", online: false }]);
 });
 
 test("closing a replaced socket does not announce the role offline", async () => {
