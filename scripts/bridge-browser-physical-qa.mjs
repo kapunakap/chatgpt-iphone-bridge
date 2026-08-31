@@ -262,7 +262,7 @@ async function runPhysicalQa(options) {
     },
     stderr: "pipe",
   });
-  const client = new Client({ name: "bridge-browser-physical-qa", version: "0.2.0-beta.2" });
+  const client = new Client({ name: "bridge-browser-physical-qa", version: "0.2.0-beta.3" });
   const abortController = new AbortController();
   let nativeSessionId = null;
   let cellularOperationId = null;

@@ -1,6 +1,6 @@
 {
   "name": "chatgpt-iphone-bridge",
-  "version": "0.2.0-beta.2",
+  "version": "0.2.0-beta.3",
   "private": true,
   "description": "Local iPhone Safari automation plus an opt-in cellular Bridge Browser for ChatGPT.",
   "license": "MIT",

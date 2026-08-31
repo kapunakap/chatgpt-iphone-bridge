@@ -300,7 +300,7 @@ await startIphoneBridgeServer({
 
 External packages can enable the paired cellular browser with `cellular: { enabled: true, relayUrl, identityPath }`; it remains disabled when this option and the matching environment flag are absent.
 
-The bridge package version is `0.2.0-beta.2`; consumers should use an exact version.
+The bridge package version is `0.2.0-beta.3`; consumers should use an exact version.
 
 ## Security
 

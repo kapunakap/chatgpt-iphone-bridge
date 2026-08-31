@@ -134,7 +134,7 @@ export class CellularBrowserPlugin {
   constructor(options) {
     if (!options?.client) throw new Error("cellular relay client is required");
     this.name = "openai-cellular-iphone-browser";
-    this.version = "0.2.0-beta.2";
+    this.version = "0.2.0-beta.3";
     this.client = options.client;
     this.alias = options.alias ?? options.client.identity?.alias ?? "remote-iphone";
     this.lease = options.lease ?? new DeviceLease();
