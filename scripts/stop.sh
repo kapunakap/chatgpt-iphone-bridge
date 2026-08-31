@@ -43,8 +43,9 @@ tunnel-client runtimes --json stop "$ALIAS" >/dev/null
 for _ in {1..30}; do
   current="$(tunnel-client runtimes --json status "$ALIAS" 2>/dev/null || true)"
   if BRIDGE_STATUS_JSON="$current" node -e 'const s=JSON.parse(process.env.BRIDGE_STATUS_JSON || "{}"); process.exit(s.process_running === true ? 1 : 0)'; then
-    if [[ -d "$ARTIFACT_ROOT/runtime/session.lock" ]]; then
-      printf 'ERROR: Runtime stopped but the session lease remains; cleanup is not proven.\n' >&2
+    remaining_lock="$(find "$ARTIFACT_ROOT/runtime" -maxdepth 1 -type d -name '*.lock' -print -quit 2>/dev/null || true)"
+    if [[ -n "$remaining_lock" ]]; then
+      printf 'ERROR: Runtime stopped but a session lease remains; cleanup is not proven.\n' >&2
       exit 2
     fi
     printf 'BRIDGE_STOPPED=1\n'

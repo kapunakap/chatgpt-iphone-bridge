@@ -13,6 +13,8 @@ const DEFAULT_INSTRUCTIONS = [
   "Select the real iPhone before preparation or session creation.",
   "Use appium_prepare_ios_real_device_async start/status/cancel instead of the blocking preparation tool.",
   "Use appium_create_session_async start/status/cancel instead of appium_session_management action=create.",
+  "Give each Safari session request a unique clientRequestId and reuse it only to retry that same request.",
+  "Keep the returned operationId private, pass it on every status or cancel call, and poll queued work within ten minutes to retain its FIFO spot.",
   "Delete the owned session when testing is complete.",
 ];
 
@@ -63,9 +65,19 @@ export async function startIphoneBridgeServer(options = {}) {
   const stop = (signal) => {
     stopping ??= (async () => {
       console.error(`Local iPhone bridge received ${signal}; cleaning up`);
-      await lifecyclePlugin.shutdown();
-      await cellularPlugin?.shutdown();
-      await server.stop();
+      const cleanup = await Promise.allSettled([
+        lifecyclePlugin.shutdown(),
+        ...(cellularPlugin ? [cellularPlugin.shutdown()] : []),
+      ]);
+      let serverFailure = null;
+      try {
+        await server.stop();
+      } catch (error) {
+        serverFailure = error;
+      }
+      const failures = cleanup.filter((result) => result.status === "rejected").map((result) => result.reason);
+      if (serverFailure) failures.push(serverFailure);
+      if (failures.length > 0) throw new AggregateError(failures, "one or more bridge cleanup paths failed");
     })().catch((error) => {
       console.error(`Local iPhone bridge shutdown failed: ${error instanceof Error ? error.stack : String(error)}`);
       process.exitCode = 1;

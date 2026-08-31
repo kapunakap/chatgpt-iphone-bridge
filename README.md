@@ -1,4 +1,5 @@
 # ChatGPT iPhone Bridge
+<img width="1672" height="941" alt="ChatGPT Image Aug 30, 2026, 03_29_42 AM" src="https://github.com/user-attachments/assets/f3e87553-787e-4692-88e1-790056cd4e5f" />
 
 Control Mobile Safari on one USB-connected iPhone from ChatGPT through OpenAI Secure MCP Tunnel and Appium MCP. An opt-in experimental mode can instead control a dedicated Bridge Browser app on an iPhone over cellular.
 
@@ -34,7 +35,7 @@ The bridge preserves the upstream Appium catalog and adds two non-blocking lifec
 - `appium_prepare_ios_real_device_async`
 - `appium_create_session_async`
 
-Both support `start`, `status`, and `cancel`. Only one preparation or owned session may run across local bridge processes.
+Both support `start`, `status`, and `cancel`. Safari session requests use a private, persistent FIFO waiting room. Only one preparation or owned session may run across local bridge processes, while up to 20 Safari requests may wait in the managed bridge runtime.
 
 ## Requirements
 
@@ -96,8 +97,8 @@ Create a ChatGPT developer-mode app named **Local iPhone**, choose **Tunnel**, s
 
 1. Call `select_device` with `platform=ios` and `iosDeviceType=real`.
 2. Call `appium_prepare_ios_real_device_async` with `action=start` and the selected UDID.
-3. Poll `action=status`. Pick a recommended profile from the discovery result.
-4. Start preparation again with that profile UUID and poll until `state=ready`.
+3. Poll `action=status` with the returned `operationId`. Pick a recommended profile from the discovery result.
+4. Start preparation again with that profile UUID and poll with its `operationId` until `state=ready`. Selecting the same iPhone again preserves this shared ready preparation.
 5. Combine the returned `capabilitiesHint` with:
 
 ```json
@@ -107,9 +108,17 @@ Create a ChatGPT developer-mode app named **Local iPhone**, choose **Tunnel**, s
 }
 ```
 
-6. Call `appium_create_session_async` with `action=start`, then poll until `state=ready`.
-7. Use normal Appium interaction tools with the returned session.
-8. Delete the owned session when finished.
+6. Call `appium_create_session_async` with `action=start`, the capabilities, and a unique `clientRequestId`. Reuse that client request ID only when retrying the same start call.
+7. Keep the returned `operationId` private. Poll `action=status` with it until `state=ready`. A waiting response includes its one-based position, queue depth, reason, heartbeat deadline, and recommended poll interval. Every waiting status call renews the 10-minute heartbeat.
+8. Use `action=cancel` with the same operation ID to leave the queue or clean up an active request.
+9. Use normal Appium interaction tools with the returned session.
+10. Delete the owned session when finished so the next live request can start.
+
+Queued requests survive a managed bridge restart in FIFO order. A restored request must send one fresh status heartbeat before it can start. Work that was already starting or active is marked `interrupted` because Appium session survival cannot be proven.
+
+Waiting requests expire after ten minutes without a status heartbeat and cannot be revived. Active sessions have no automatic expiry.
+
+Before creation, the bridge verifies that the selected iPhone is unlocked. Preinstalled WDA gets a 60-second launch window and one internal retry after a clean launch failure; the same async operation and `clientRequestId` remain in use. Terminal failures distinguish `DEVICE_LOCKED`, `DEVICE_STATE_UNAVAILABLE`, `WDA_LAUNCH_FAILED`, and `LIFECYCLE_TIMEOUT`.
 
 Blocking preparation and creation, remote Appium URLs, session attachment, simulators, Android, native apps, and unprepared WDA paths fail closed.
 
@@ -128,13 +137,21 @@ Set `APPIUM_BRIDGE_UNSAFE_FULL_APPIUM=true` only in a fully trusted local enviro
 ```bash
 npm test
 npm run status
+npm run queue:status
+npm run runtime:monitor:install
+npm run runtime:monitor:status
+npm run runtime:repair
 npm run doctor
 npm run prune
 bash scripts/stop.sh
 ```
 
 - `status` is fast and redacted.
-- `doctor` checks the toolchain, MCP contract, device, signing, and managed runtime.
+- `queue:status` is local-only and shows the redacted FIFO order and private operation handles without capabilities, URLs, device IDs, or session IDs.
+- `runtime:monitor:install` installs an alert-only user LaunchAgent that checks the canonical runtime every 60 seconds. Install it only from the stable checkout path; it never reconnects automatically and can be removed with `npm run runtime:monitor:uninstall`.
+- `runtime:monitor:status` checks `process_running`, `healthy`, `ready`, and either owned USB-only or cellular launcher identity without changing runtime state.
+- `runtime:repair` is the only monitor-related reconnect path. It reuses the canonical alias and stored tunnel ID, validates the mode-`600` runtime key, and refuses another launcher. Repairing cellular mode requires the same `IPHONE_BRIDGE_CELLULAR_*` environment used to connect it.
+- `doctor` checks the toolchain, MCP contract, model-based real-device presence, signing, and managed runtime. A user-defined device name does not affect detection.
 - `prune` removes screenshots older than seven days; override with `APPIUM_BRIDGE_RETENTION_DAYS`.
 - `stop` is idempotent and refuses to stop an alias that targets another launcher.
 
@@ -234,7 +251,21 @@ FIXTURE_HOST=0.0.0.0 npm run fixture
 
 Do not expose the fixture beyond the intended test network.
 
-If local VPN or firewall policy blocks inbound LAN HTTP, the physical smoke can use another neutral HTTPS page by setting `BRIDGE_FIXTURE_URL`, `BRIDGE_FIXTURE_SELECTOR`, and `BRIDGE_FIXTURE_MARKER` explicitly.
+Physical smoke probes the controlled page before consuming an iPhone session. If local VPN or firewall policy blocks inbound LAN HTTP, configure an explicit neutral HTTPS fallback:
+
+```bash
+BRIDGE_FIXTURE_URL=http://192.168.1.10:4173/ \
+BRIDGE_FIXTURE_FALLBACK_URL=https://example.com/ \
+BRIDGE_FIXTURE_FALLBACK_SELECTOR=h1 \
+BRIDGE_FIXTURE_FALLBACK_MARKER='Example Domain' \
+npm run smoke:physical
+```
+
+The smoke output reports `fixture_source=controlled` or `fixture_source=fallback`; it never silently substitutes a page.
+
+## ChatGPT app release gate
+
+`npm run smoke` verifies that the live MCP tool schema contains `clientRequestId`. After any tool name, description, or input-schema change, refresh **Local iPhone** under ChatGPT plugin settings and open a fresh chat. Do not declare the update complete until the managed schema also shows `clientRequestId` and a ChatGPT-native physical Safari run ends with a screenshot, zero sessions, and an empty queue. Add required arguments only through a compatibility window or a versioned tool.
 
 ## Extension API
 
@@ -252,7 +283,7 @@ await startIphoneBridgeServer({
 
 External packages can enable the paired cellular browser with `cellular: { enabled: true, relayUrl, identityPath }`; it remains disabled when this option and the matching environment flag are absent.
 
-The bridge package version is `0.2.0-beta.1`; consumers should use an exact version.
+The bridge package version is `0.2.0-beta.2`; consumers should use an exact version.
 
 ## Security
 

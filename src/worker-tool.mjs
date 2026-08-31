@@ -21,7 +21,7 @@ export async function runWorkerTool(name, args, options = {}) {
     env: workerEnv,
     stderr: "pipe",
   });
-  const client = new Client({ name: "chatgpt-iphone-bridge-worker", version: "0.2.0-beta.1" });
+  const client = new Client({ name: "chatgpt-iphone-bridge-worker", version: "0.2.0-beta.2" });
   let stderr = "";
   transport.stderr?.setEncoding?.("utf8");
   transport.stderr?.on?.("data", (chunk) => {

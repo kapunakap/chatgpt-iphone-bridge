@@ -100,11 +100,16 @@ async function main() {
 
   send({ jsonrpc: "2.0", method: "notifications/initialized", params: {} });
   const listed = await request(2, "tools/list");
+  const toolsByName = new Map((listed?.tools ?? []).map((tool) => [tool.name, tool]));
   const names = new Set((listed?.tools ?? []).map((tool) => tool.name));
   const missing = [...requiredTools].filter((name) => !names.has(name));
   if (missing.length > 0) throw new Error(`Missing required Appium tools: ${missing.join(", ")}`);
   if (names.size !== expectedToolCount) {
     throw new Error(`Expected ${expectedToolCount} Appium tools, found ${names.size}`);
+  }
+  const createProperties = toolsByName.get("appium_create_session_async")?.inputSchema?.properties ?? {};
+  if (!createProperties.clientRequestId || createProperties.clientRequestId.maxLength !== 200) {
+    throw new Error("appium_create_session_async schema is missing the required clientRequestId contract");
   }
 
   const listedSessions = await request(3, "tools/call", {
@@ -118,7 +123,7 @@ async function main() {
     arguments: { action: "status" },
   });
   if (missingOperation?.isError !== true) throw new Error("missing async operation should fail closed");
-  if (missingOperation?.structuredContent?.error?.code !== "UNKNOWN_OPERATION") {
+  if (missingOperation?.structuredContent?.error?.code !== "INVALID_ARGUMENTS") {
     throw new Error("async structuredContent was not preserved through plugin hooks");
   }
 

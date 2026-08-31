@@ -10,6 +10,7 @@ const COMMAND_TIMEOUT_MS = 15_000;
 const RECONNECT_GRACE_MS = 30_000;
 const MAX_SNAPSHOT_BYTES = 32 * 1024;
 const MAX_SCREENSHOT_BYTES = 1.5 * 1024 * 1024;
+const TERMINAL_STATES = new Set(["cancelled", "closed", "failed", "rejected", "timed_out"]);
 
 const emptySchema = z.object({});
 const sessionSchema = z.object({
@@ -115,7 +116,7 @@ export class CellularBrowserPlugin {
   constructor(options) {
     if (!options?.client) throw new Error("cellular relay client is required");
     this.name = "openai-cellular-iphone-browser";
-    this.version = "0.2.0-beta.1";
+    this.version = "0.2.0-beta.2";
     this.client = options.client;
     this.alias = options.alias ?? options.client.identity?.alias ?? "remote-iphone";
     this.lease = options.lease ?? new DeviceLease();
@@ -125,7 +126,9 @@ export class CellularBrowserPlugin {
     this.approvalTimeoutMs = options.approvalTimeoutMs ?? SESSION_APPROVAL_TIMEOUT_MS;
     this.commandTimeoutMs = options.commandTimeoutMs ?? COMMAND_TIMEOUT_MS;
     this.reconnectGraceMs = options.reconnectGraceMs ?? RECONNECT_GRACE_MS;
+    this.terminalRetentionMs = options.terminalRetentionMs ?? 24 * 60 * 60_000;
     this.operation = null;
+    this.terminalTimer = null;
     this.shuttingDown = false;
     this.listenersAttached = false;
     this.attachListeners();
@@ -238,6 +241,9 @@ export class CellularBrowserPlugin {
       }
       throw Object.assign(new Error("another cellular browser operation is active"), { code: "OPERATION_IN_PROGRESS" });
     }
+
+    if (this.terminalTimer) clearTimeout(this.terminalTimer);
+    this.terminalTimer = null;
 
     const leaseToken = await this.lease.acquire("cellular_browser");
     const startedAt = this.now();
@@ -513,10 +519,23 @@ export class CellularBrowserPlugin {
       await this.lease.release(operation.leaseToken);
       operation.leaseToken = null;
     }
+    this.scheduleTerminalExpiry(operation);
+  }
+
+  scheduleTerminalExpiry(operation) {
+    if (this.shuttingDown || !TERMINAL_STATES.has(operation.state) || this.terminalRetentionMs < 0) return;
+    if (this.terminalTimer) clearTimeout(this.terminalTimer);
+    this.terminalTimer = setTimeout(() => {
+      if (this.operation === operation && TERMINAL_STATES.has(operation.state)) this.operation = null;
+      this.terminalTimer = null;
+    }, this.terminalRetentionMs);
+    this.terminalTimer.unref?.();
   }
 
   async shutdown() {
     this.shuttingDown = true;
+    if (this.terminalTimer) clearTimeout(this.terminalTimer);
+    this.terminalTimer = null;
     if (this.operation && !["closed", "cancelled", "failed", "timed_out", "rejected"].includes(this.operation.state)) {
       await this.closeSession("closed").catch(() => this.release(this.operation));
     }

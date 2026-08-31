@@ -1,6 +1,6 @@
 {
   "name": "chatgpt-iphone-bridge",
-  "version": "0.2.0-beta.1",
+  "version": "0.2.0-beta.2",
   "private": true,
   "description": "Local iPhone Safari automation plus an opt-in cellular Bridge Browser for ChatGPT.",
   "license": "MIT",
@@ -55,6 +55,12 @@
     "smoke:physical": "node scripts/physical-smoke.mjs",
     "prune": "bash scripts/prune-artifacts.sh",
     "status": "bash scripts/status.sh",
+    "queue:status": "node scripts/queue-status.mjs",
+    "runtime:monitor:check": "node scripts/runtime-monitor.mjs check",
+    "runtime:monitor:status": "node scripts/runtime-monitor.mjs status",
+    "runtime:monitor:install": "node scripts/runtime-monitor-service.mjs install",
+    "runtime:monitor:uninstall": "node scripts/runtime-monitor-service.mjs uninstall",
+    "runtime:repair": "node scripts/runtime-repair.mjs",
     "tool": "node scripts/appium-mcp-tool.mjs",
     "test": "npm run check"
   },

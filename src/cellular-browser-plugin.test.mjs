@@ -222,3 +222,22 @@ test("foreground disconnect enters grace and session close releases the lease", 
   assert.equal(plugin.operation.state, "closed");
   assert.equal(lease.released, 1);
 });
+
+test("terminal cellular operation metadata expires after the retention window", async () => {
+  const sessionId = randomUUID();
+  const client = new FakeClient({
+    ready: true,
+    request: async (command) =>
+      command === "session.start" ? { state: "ready", sessionId } : { state: "closed" },
+  });
+  const { plugin, tools } = setup(client, { terminalRetentionMs: 5 });
+  await tools.get("iphone_browser_session").execute({
+    action: "start",
+    initialUrl: "https://example.test/",
+    allowedOrigins: ["https://example.test"],
+  });
+  await settle();
+  await tools.get("iphone_browser_session").execute({ action: "stop", sessionId });
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(plugin.operation, null);
+});
