@@ -93,9 +93,23 @@ final class BrowserController: NSObject, ObservableObject {
       ])
   }
 
-  func element(action: String, elementId: String, text: String?) async throws -> JSONValue {
+  func element(
+    action: String,
+    elementId: String,
+    text: String?,
+    durationMs: Int?,
+    x: Double?,
+    y: Double?,
+    endX: Double?,
+    endY: Double?
+  ) async throws -> JSONValue {
     var args: [String: JSONValue] = ["action": .string(action), "elementId": .string(elementId)]
     if let text { args["text"] = .string(text) }
+    if let durationMs { args["durationMs"] = .number(Double(durationMs)) }
+    if let x { args["x"] = .number(x) }
+    if let y { args["y"] = .number(y) }
+    if let endX { args["endX"] = .number(endX) }
+    if let endY { args["endY"] = .number(endY) }
     return try await bridgeCommand("element", args: args)
   }
 
@@ -168,12 +182,18 @@ final class BrowserController: NSObject, ObservableObject {
 
   private static let bridgeScript = #"""
     (() => {
-      const state = { generation: 1, nextId: 1, elements: new Map() };
+      const state = {
+        documentId: crypto.randomUUID(), generation: 1, nextId: 1, elements: new Map(), nextPointerId: 1000
+      };
       const reset = () => { state.generation += 1; state.nextId = 1; state.elements.clear(); };
       const observe = () => {
         if (!document.documentElement) return setTimeout(observe, 0);
-        new MutationObserver(reset).observe(document.documentElement, {
-          childList: true, subtree: true, attributes: true, characterData: true
+        new MutationObserver(() => {
+          for (const element of state.elements.values()) {
+            if (!element.isConnected) { reset(); break; }
+          }
+        }).observe(document.documentElement, {
+          childList: true, subtree: true
         });
       };
       observe();
@@ -205,7 +225,7 @@ final class BrowserController: NSObject, ObservableObject {
       ).slice(0, 200);
       const register = (element) => {
         for (const [id, existing] of state.elements) if (existing === element) return id;
-        const id = `${state.generation}:${state.nextId++}`;
+        const id = `${state.documentId}:${state.generation}:${state.nextId++}`;
         state.elements.set(id, element);
         return id;
       };
@@ -219,12 +239,42 @@ final class BrowserController: NSObject, ObservableObject {
         };
       };
       const requireElement = (id) => {
-        const generation = Number(String(id).split(':')[0]);
+        const [documentId, rawGeneration] = String(id).split(':');
+        const generation = Number(rawGeneration);
         const element = state.elements.get(id);
-        if (generation !== state.generation || !element || !element.isConnected) {
+        if (documentId !== state.documentId || generation !== state.generation || !element || !element.isConnected) {
           throw new Error('STALE_ELEMENT: Element ID expired after the page changed');
         }
         return element;
+      };
+      const normalized = (value, fallback) => Math.max(0, Math.min(1, Number(value ?? fallback)));
+      const pointIn = (element, x, y) => {
+        const rect = element.getBoundingClientRect();
+        return { x: rect.left + rect.width * normalized(x, 0.5), y: rect.top + rect.height * normalized(y, 0.5) };
+      };
+      const pointer = (element, type, pointerId, point, buttons) => element.dispatchEvent(new PointerEvent(type, {
+        bubbles: true, cancelable: true, composed: true, pointerId, pointerType: 'touch', isPrimary: true,
+        clientX: point.x, clientY: point.y, button: type === 'pointerup' ? 0 : 0, buttons
+      }));
+      const wait = (durationMs) => new Promise(resolve => setTimeout(resolve, durationMs));
+      const gesture = async (element, action, args) => {
+        element.scrollIntoView({ block: 'center', inline: 'center' });
+        const start = pointIn(element, args.x, args.y);
+        const pointerId = state.nextPointerId++;
+        pointer(element, 'pointerdown', pointerId, start, 1);
+        if (action === 'tap') {
+          pointer(element, 'pointerup', pointerId, start, 0);
+          element.click();
+          return;
+        }
+        const durationMs = Math.max(50, Math.min(10000, Number(args.durationMs || (action === 'drag' ? 500 : 250))));
+        let end = start;
+        if (action === 'drag') {
+          end = pointIn(element, args.endX, args.endY);
+          pointer(element, 'pointermove', pointerId, end, 1);
+        }
+        await wait(durationMs);
+        pointer(element, 'pointerup', pointerId, end, 0);
       };
       const setValue = (element, value) => {
         if (element.isContentEditable) {
@@ -263,7 +313,7 @@ final class BrowserController: NSObject, ObservableObject {
         }
         if (command === 'element') {
           const element = requireElement(String(args.elementId));
-          if (args.action === 'tap') { element.scrollIntoView({ block: 'center', inline: 'center' }); element.click(); }
+          if (['tap', 'press', 'drag'].includes(args.action)) await gesture(element, args.action, args);
           else if (args.action === 'type') { element.focus(); setValue(element, String(args.text || '')); }
           else if (args.action === 'clear') { element.focus(); setValue(element, ''); }
           else if (args.action === 'scrollIntoView') element.scrollIntoView({ block: 'center', inline: 'nearest' });

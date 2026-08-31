@@ -232,7 +232,12 @@ final class AppModel: ObservableObject {
       return try await browser.element(
         action: try requiredString(args, "action"),
         elementId: try requiredString(args, "elementId"),
-        text: args["text"]?.string
+        text: args["text"]?.string,
+        durationMs: args["durationMs"]?.int,
+        x: args["x"]?.double,
+        y: args["y"]?.double,
+        endX: args["endX"]?.double,
+        endY: args["endY"]?.double
       )
     case "page.snapshot":
       try requireSession(args)

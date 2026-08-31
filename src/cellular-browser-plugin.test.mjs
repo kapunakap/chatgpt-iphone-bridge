@@ -153,6 +153,54 @@ test("navigation enforces approved HTTPS origins before sending a command", asyn
   assert.equal(client.requests.at(-1).command, "page.navigate");
 });
 
+test("element gestures stay within the existing tool and enforce bounded arguments", async () => {
+  const sessionId = randomUUID();
+  const client = new FakeClient({
+    ready: true,
+    request: async (command) => command === "session.start" ? { state: "ready", sessionId } : { completed: true },
+  });
+  const { tools } = setup(client);
+  await tools.get("iphone_browser_session").execute({
+    action: "start",
+    initialUrl: "https://example.test/",
+    allowedOrigins: ["https://example.test"],
+  });
+  await settle();
+
+  const pressed = await tools.get("iphone_browser_element").execute({
+    sessionId,
+    action: "press",
+    elementId: "document:1:1",
+    durationMs: 750,
+    x: 0.5,
+    y: 0.5,
+  });
+  assert.equal(pressed.isError, undefined);
+  assert.equal(client.requests.at(-1).command, "element.action");
+  assert.equal(client.requests.at(-1).args.durationMs, 750);
+
+  const dragged = await tools.get("iphone_browser_element").execute({
+    sessionId,
+    action: "drag",
+    elementId: "document:1:2",
+    durationMs: 1000,
+    x: 0.5,
+    y: 0.5,
+    endX: 0.8,
+    endY: 0.5,
+  });
+  assert.equal(dragged.isError, undefined);
+  assert.equal(client.requests.at(-1).args.endX, 0.8);
+
+  const invalid = await tools.get("iphone_browser_element").execute({
+    sessionId,
+    action: "drag",
+    elementId: "document:1:2",
+  });
+  assert.equal(invalid.isError, true);
+  assert.match(invalid.content[0].text, /endX and endY are required/);
+});
+
 test("cancelling a pending approval tells the iPhone and cannot create an orphan session", async () => {
   let finishApproval;
   const pendingApproval = new Promise((resolve) => {

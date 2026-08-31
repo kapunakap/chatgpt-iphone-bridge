@@ -33,9 +33,14 @@ const findSchema = z.object({
 });
 const elementSchema = z.object({
   sessionId: z.string().uuid(),
-  action: z.enum(["tap", "type", "clear", "getText", "scrollIntoView"]),
+  action: z.enum(["tap", "type", "clear", "getText", "scrollIntoView", "press", "drag"]),
   elementId: z.string().min(1).max(200),
   text: z.string().max(16 * 1024).optional(),
+  durationMs: z.number().int().min(50).max(10_000).optional(),
+  x: z.number().min(0).max(1).optional(),
+  y: z.number().min(0).max(1).optional(),
+  endX: z.number().min(0).max(1).optional(),
+  endY: z.number().min(0).max(1).optional(),
 });
 const snapshotSchema = z.object({
   sessionId: z.string().uuid(),
@@ -180,7 +185,8 @@ export class CellularBrowserPlugin {
     });
     registry.addTool({
       name: "iphone_browser_element",
-      description: "Tap, type, clear, read, or scroll to an element returned by iphone_browser_find.",
+      description:
+        "Tap, type, clear, read, scroll, press-and-hold, or drag within an element returned by iphone_browser_find. For press/drag, durationMs is bounded to 10 seconds and x/y/endX/endY are normalized element coordinates from 0 to 1. This supports touch controls without arbitrary JavaScript.",
       parameters: elementSchema,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
       execute: async (args) => this.execute(elementSchema, args, (parsed) => this.element(parsed)),
@@ -441,6 +447,16 @@ export class CellularBrowserPlugin {
   async element(args) {
     if (args.action === "type" && args.text == null) throw new Error("text is required for type");
     if (args.action !== "type" && args.text != null) throw new Error("text is only allowed for type");
+    const gestureFields = ["durationMs", "x", "y", "endX", "endY"];
+    if (!["press", "drag"].includes(args.action) && gestureFields.some((field) => args[field] != null)) {
+      throw new Error("gesture coordinates and duration are only allowed for press or drag");
+    }
+    if (args.action === "drag" && (args.endX == null || args.endY == null)) {
+      throw new Error("endX and endY are required for drag");
+    }
+    if (args.action === "press" && (args.endX != null || args.endY != null)) {
+      throw new Error("endX and endY are only allowed for drag");
+    }
     return await this.command("element.action", args);
   }
 

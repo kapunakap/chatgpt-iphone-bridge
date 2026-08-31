@@ -50,6 +50,11 @@ enum JSONValue: Codable, Equatable, Sendable {
     return Int(value)
   }
 
+  var double: Double? {
+    guard case .number(let value) = self else { return nil }
+    return value
+  }
+
   var object: [String: JSONValue]? {
     guard case .object(let value) = self else { return nil }
     return value
