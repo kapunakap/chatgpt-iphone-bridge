@@ -53,11 +53,16 @@ export class CellularRelayClient extends EventEmitter {
       options.webSocketFactory ??
       ((url, websocketOptions) => new WebSocket(url, websocketOptions));
     this.reconnectDelaysMs = options.reconnectDelaysMs ?? [1000, 2000, 4000, 8000, 15_000, 30_000];
+    this.connectTimeoutMs = options.connectTimeoutMs ?? 16_000;
+    this.heartbeatIntervalMs = options.heartbeatIntervalMs ?? 20_000;
     this.socket = null;
     this.started = false;
     this.closed = false;
     this.reconnectAttempt = 0;
     this.reconnectTimer = null;
+    this.connectTimer = null;
+    this.heartbeatTimer = null;
+    this.awaitingPong = false;
     this.relayConnected = false;
     this.deviceOnline = false;
     this.peerStatusKnown = false;
@@ -97,18 +102,52 @@ export class CellularRelayClient extends EventEmitter {
     });
     this.socket = socket;
 
+    this.connectTimer = setTimeout(() => {
+      if (socket === this.socket && !this.relayConnected) socket.terminate();
+    }, this.connectTimeoutMs);
+    this.connectTimer.unref?.();
+
     socket.on("open", () => this.onOpen(socket));
     socket.on("message", (data) => this.onMessage(socket, data));
-    socket.on("error", (error) => this.emit("warning", error));
+    socket.on("error", (error) => {
+      this.emit("warning", error);
+      if (socket === this.socket && !this.relayConnected) socket.terminate();
+    });
+    socket.on("pong", () => {
+      if (socket === this.socket) this.awaitingPong = false;
+    });
     socket.on("close", (code, reason) => this.onClose(socket, code, reason));
   }
 
   onOpen(socket) {
     if (socket !== this.socket) return;
+    if (this.connectTimer) clearTimeout(this.connectTimer);
+    this.connectTimer = null;
     this.reconnectAttempt = 0;
     this.relayConnected = true;
+    this.startHeartbeat(socket);
     this.resetSecureChannel();
     this.emit("relay", this.status());
+  }
+
+  startHeartbeat(socket) {
+    this.stopHeartbeat();
+    this.heartbeatTimer = setInterval(() => {
+      if (socket !== this.socket || socket.readyState !== WebSocket.OPEN) return;
+      if (this.awaitingPong) {
+        socket.terminate();
+        return;
+      }
+      this.awaitingPong = true;
+      socket.ping();
+    }, this.heartbeatIntervalMs);
+    this.heartbeatTimer.unref?.();
+  }
+
+  stopHeartbeat() {
+    if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
+    this.heartbeatTimer = null;
+    this.awaitingPong = false;
   }
 
   onMessage(socket, raw) {
@@ -266,6 +305,9 @@ export class CellularRelayClient extends EventEmitter {
 
   onClose(socket, code, reason) {
     if (socket !== this.socket) return;
+    if (this.connectTimer) clearTimeout(this.connectTimer);
+    this.connectTimer = null;
+    this.stopHeartbeat();
     this.socket = null;
     this.relayConnected = false;
     this.deviceOnline = false;
@@ -301,6 +343,9 @@ export class CellularRelayClient extends EventEmitter {
     this.started = false;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
+    if (this.connectTimer) clearTimeout(this.connectTimer);
+    this.connectTimer = null;
+    this.stopHeartbeat();
     const socket = this.socket;
     this.socket = null;
     for (const pending of this.pending.values()) {

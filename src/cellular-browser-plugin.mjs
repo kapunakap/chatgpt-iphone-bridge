@@ -610,6 +610,9 @@ export async function createCellularBrowserPluginFromEnvironment(options = {}) {
   if (!relayUrl) throw new Error("Set IPHONE_BRIDGE_CELLULAR_RELAY_URL for cellular mode");
   const identity = options.identity ?? (await loadHostIdentity(identityPath));
   const client = options.client ?? new CellularRelayClient({ identity, relayUrl });
+  client.on("warning", (error) => {
+    console.error(`WARN cellular relay: ${error instanceof Error ? error.message : String(error)}`);
+  });
   return new CellularBrowserPlugin({ ...options, identity, client, alias: options.alias ?? process.env.IPHONE_BRIDGE_CELLULAR_DEVICE_ALIAS });
 }
 

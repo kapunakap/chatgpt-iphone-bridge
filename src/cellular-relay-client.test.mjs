@@ -26,6 +26,13 @@ class FakeSocket extends EventEmitter {
     if (this.readyState !== WebSocket.OPEN) throw new Error("socket is not open");
     setImmediate(() => this.peer?.emit("message", Buffer.from(value)));
   }
+  ping() {
+    if (this.readyState !== WebSocket.OPEN) throw new Error("socket is not open");
+    setImmediate(() => this.emit("pong"));
+  }
+  terminate() {
+    this.close(1006, "terminated");
+  }
   close(code = 1000, reason = "") {
     if (this.readyState >= WebSocket.CLOSING) return;
     this.readyState = WebSocket.CLOSED;
@@ -178,6 +185,7 @@ test("relay client completes the authenticated handshake and request round trip"
     identity: host,
     relayUrl: "https://relay.example",
     reconnectDelaysMs: [1000],
+    heartbeatIntervalMs: 5,
     webSocketFactory: (_url, options) => {
       assert.match(options.headers.Authorization, /^Bearer /);
       setImmediate(() => {
@@ -194,6 +202,8 @@ test("relay client completes the authenticated handshake and request round trip"
   assert.deepEqual(client.status(), { relayConnected: true, deviceOnline: true, secureReady: true });
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(readyAcknowledged, true);
+  await new Promise((resolve) => setTimeout(resolve, 15));
+  assert.equal(client.status().relayConnected, true);
   assert.deepEqual(await client.request("page.snapshot", {}), { echo: "page.snapshot" });
   await client.close();
 });
