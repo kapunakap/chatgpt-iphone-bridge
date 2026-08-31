@@ -79,7 +79,10 @@ final class RelayClient: ObservableObject {
     }
     components.scheme = "wss"
     components.path = "/v1/devices/\(credentials.deviceId)/connect"
-    components.queryItems = [URLQueryItem(name: "role", value: "device")]
+    components.queryItems = [
+      URLQueryItem(name: "role", value: "device"),
+      URLQueryItem(name: "replace", value: "1"),
+    ]
     guard let url = components.url else {
       lastError = "Relay WebSocket URL is invalid"
       return

@@ -56,7 +56,16 @@ final class AppModel: ObservableObject {
       }
       return try await self.handle(command: command, args: args)
     }
-    statusMessage = "Connecting…"
+    statusMessage =
+      relay.secureReady
+      ? (activeSessionId == nil ? "Secure channel ready" : "Cellular session active")
+      : "Connecting…"
+  }
+
+  func reconnect() {
+    guard credentials != nil else { return }
+    relay.stop(reconnect: false)
+    enterForeground()
   }
 
   func leaveForeground() async {

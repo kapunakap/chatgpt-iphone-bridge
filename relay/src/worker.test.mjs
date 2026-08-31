@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { PAIRING_RATE_LIMIT } from "./core.mjs";
-import worker, { DeviceRelay, PairRateLimiter } from "./worker.mjs";
+import worker, { DeviceRelay, PairRateLimiter, prepareRoleConnection } from "./worker.mjs";
 
 class MemoryStorage {
   constructor() {
@@ -225,6 +225,32 @@ test("hibernated socket attachment restores routing without in-memory content", 
   const ciphertext = JSON.stringify({ v: 1, type: "sealed", ciphertext: "opaque" });
   await restoredRelay.webSocketMessage(host, ciphertext);
   assert.deepEqual(received, [ciphertext]);
+});
+
+test("authenticated reconnect replaces its stale role socket while default duplicates are rejected", async () => {
+  const ctx = new FakeContext();
+  let closed = null;
+  const stale = { close: (code, reason) => (closed = { code, reason }) };
+  ctx.sockets.device.push(stale);
+
+  const rejected = prepareRoleConnection(ctx, "device", false);
+  assert.equal(rejected.status, 409);
+  assert.equal((await body(rejected)).error.code, "ROLE_CONNECTED");
+  assert.equal(closed, null);
+
+  assert.equal(prepareRoleConnection(ctx, "device", true), null);
+  assert.deepEqual(closed, { code: 1012, reason: "replaced by authenticated reconnect" });
+});
+
+test("closing a replaced socket does not announce the role offline", async () => {
+  const ctx = new FakeContext();
+  const notices = [];
+  const stale = { deserializeAttachment: () => ({ role: "device" }) };
+  const replacement = { deserializeAttachment: () => ({ role: "device" }) };
+  ctx.sockets.device.push(stale, replacement);
+  ctx.sockets.host.push({ send: (message) => notices.push(JSON.parse(message)) });
+  await new DeviceRelay(ctx).webSocketClose(stale);
+  assert.deepEqual(notices, []);
 });
 
 test("oversized WebSocket messages close the sender and are not forwarded", async () => {

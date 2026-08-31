@@ -59,7 +59,7 @@ function identities() {
 
 test("relay URL uses TLS WebSocket and strips unrelated path state", () => {
   const url = relayWebSocketUrl("https://relay.example/old?secret=no", "11111111-1111-4111-8111-111111111111");
-  assert.equal(url.href, "wss://relay.example/v1/devices/11111111-1111-4111-8111-111111111111/connect?role=host");
+  assert.equal(url.href, "wss://relay.example/v1/devices/11111111-1111-4111-8111-111111111111/connect?role=host&replace=1");
   assert.throws(() => relayWebSocketUrl("http://relay.example", randomUUID()), /https or wss/);
   assert.equal(
     relayWebSocketUrl("http://127.0.0.1:8799", "11111111-1111-4111-8111-111111111111", {

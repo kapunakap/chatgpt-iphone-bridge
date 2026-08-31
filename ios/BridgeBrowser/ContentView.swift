@@ -99,7 +99,7 @@ struct ContentView: View {
             .accessibilityIdentifier("bridge.host-status")
           LabeledContent("Encryption", value: relay.secureReady ? "Ready" : "Waiting")
             .accessibilityIdentifier("bridge.encryption-status")
-          Button("Reconnect") { model.enterForeground() }
+          Button("Reconnect") { model.reconnect() }
             .accessibilityIdentifier("bridge.reconnect")
         }
         Section("Local data") {

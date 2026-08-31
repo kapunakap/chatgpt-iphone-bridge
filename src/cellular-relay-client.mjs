@@ -30,7 +30,7 @@ function relayWebSocketUrl(relayUrl, deviceId, { allowInsecureLoopback = false }
     throw new Error("cellular relay URL must use https or wss");
   }
   url.pathname = `/v1/devices/${encodeURIComponent(deviceId)}/connect`;
-  url.search = "role=host";
+  url.search = "role=host&replace=1";
   url.hash = "";
   return url;
 }
