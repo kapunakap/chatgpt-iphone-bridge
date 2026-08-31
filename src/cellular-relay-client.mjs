@@ -164,7 +164,14 @@ export class CellularRelayClient extends EventEmitter {
     }
 
     if (message?.v === 1 && message?.type === "sealed") {
-      if (!this.key) throw new Error("received sealed cellular message before handshake");
+      // Both peers can announce readiness at nearly the same time. A sealed
+      // ready frame may therefore overtake the peer hello that establishes
+      // the local key. Keep the socket alive and repeat our hello so the
+      // readiness exchange can finish instead of entering a reconnect loop.
+      if (!this.key) {
+        this.sendHello();
+        return;
+      }
       const payload = validateFreshPayload(openPayload(this.key, this.identity.deviceId, message), {
         now: this.now,
         replayCache: this.replayCache,
@@ -181,6 +188,9 @@ export class CellularRelayClient extends EventEmitter {
         this.secureReady = true;
         this.deviceOnline = true;
         this.emit("ready", this.status());
+      }
+      if (payload.data?.ack !== true) {
+        this.sendSealed(this.message("secure_ready", { data: { ack: true } }, 30_000));
       }
       return;
     }

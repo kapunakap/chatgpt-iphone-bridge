@@ -146,8 +146,11 @@ final class RelayClient: ObservableObject {
       try await handleHello(try JSONDecoder().decode(HelloMessage.self, from: data))
     case "sealed":
       guard let sessionKey, let credentials else {
-        throw BridgeError(
-          code: "HANDSHAKE_REQUIRED", message: "Encrypted data arrived before the handshake")
+        // A readiness frame can overtake the peer hello when both sockets
+        // reconnect together. Repeat our hello and wait for a decryptable
+        // readiness frame instead of tearing down the healthy relay socket.
+        await sendHello()
+        return
       }
       let payload = try BridgeCrypto.open(
         try JSONDecoder().decode(SealedEnvelope.self, from: data),
@@ -215,6 +218,24 @@ final class RelayClient: ObservableObject {
         hostOnline = true
         lastError = nil
         onSecureReady?()
+      }
+      if payload.data?.object?["ack"] != .bool(true) {
+        let now = BridgeCrypto.nowMs()
+        let acknowledgement = SecurePayload(
+          type: "secure_ready",
+          messageId: UUID().uuidString.lowercased(),
+          sentAt: now,
+          expiresAt: now + 30_000,
+          requestId: nil,
+          command: nil,
+          args: nil,
+          ok: nil,
+          result: nil,
+          error: nil,
+          name: nil,
+          data: .object(["ack": .bool(true)])
+        )
+        try await sendSecure(acknowledgement)
       }
       return
     }

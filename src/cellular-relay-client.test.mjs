@@ -98,11 +98,29 @@ test("a changed peer connection ID forces one fresh local hello before rekeying"
   assert.equal(sent.filter((message) => message.type === "sealed").length, 1);
 });
 
+test("an early sealed readiness frame repeats hello without closing the socket", async () => {
+  const { host } = identities();
+  const sockets = pairSockets();
+  sockets.host.readyState = WebSocket.OPEN;
+  sockets.device.readyState = WebSocket.OPEN;
+  const sent = [];
+  sockets.device.on("message", (raw) => sent.push(JSON.parse(Buffer.from(raw).toString("utf8"))));
+
+  const client = new CellularRelayClient({ identity: host, relayUrl: "https://relay.example" });
+  client.socket = sockets.host;
+  client.handleMessage({ v: 1, type: "sealed", nonce: "early", ciphertext: "early", tag: "early" });
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(client.socket, sockets.host);
+  assert.equal(sent.filter((message) => message.type === "hello").length, 1);
+});
+
 test("relay client completes the authenticated handshake and request round trip", async () => {
   const { host, device, deviceId } = identities();
   const sockets = pairSockets();
   let deviceHandshake = null;
   let sessionKey = null;
+  let readyAcknowledged = false;
   const replay = new ReplayCache();
 
   sockets.device.on("message", (raw) => {
@@ -135,6 +153,10 @@ test("relay client completes the authenticated handshake and request round trip"
     }
     if (message.type !== "sealed" || !sessionKey) return;
     const payload = validateFreshPayload(openPayload(sessionKey, deviceId, message), { replayCache: replay });
+    if (payload.type === "secure_ready" && payload.data?.ack === true) {
+      readyAcknowledged = true;
+      return;
+    }
     if (payload.type !== "request") return;
     const now = Date.now();
     sockets.device.send(
@@ -170,6 +192,8 @@ test("relay client completes the authenticated handshake and request round trip"
   client.start();
   await once(client, "ready");
   assert.deepEqual(client.status(), { relayConnected: true, deviceOnline: true, secureReady: true });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(readyAcknowledged, true);
   assert.deepEqual(await client.request("page.snapshot", {}), { echo: "page.snapshot" });
   await client.close();
 });
