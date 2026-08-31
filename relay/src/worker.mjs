@@ -35,12 +35,15 @@ export function prepareRoleConnection(ctx, role, replace) {
   const existing = ctx.getWebSockets(role);
   if (existing.length === 0) return null;
   if (!replace) return publicError(new Error(`${role} is already connected`), 409, "ROLE_CONNECTED");
+  for (const socket of existing) socket.close(1012, "replaced by authenticated reconnect");
+  return null;
+}
+
+export function notifyPeerReset(ctx, role) {
   const peerRole = role === "host" ? "device" : "host";
   for (const peer of ctx.getWebSockets(peerRole)) {
     peer.send(JSON.stringify({ v: RELAY_PROTOCOL_VERSION, type: "relay.peer", online: false }));
   }
-  for (const socket of existing) socket.close(1012, "replaced by authenticated reconnect");
-  return null;
 }
 
 async function rateLimitPairing(request, env) {
@@ -265,6 +268,7 @@ export class DeviceRelay {
     const replace = new URL(request.url).searchParams.get("replace") === "1";
     const conflict = prepareRoleConnection(this.ctx, role, replace);
     if (conflict) return conflict;
+    notifyPeerReset(this.ctx, role);
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
     this.ctx.acceptWebSocket(server, [role]);

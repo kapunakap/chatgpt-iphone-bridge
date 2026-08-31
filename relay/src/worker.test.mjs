@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { PAIRING_RATE_LIMIT } from "./core.mjs";
-import worker, { DeviceRelay, PairRateLimiter, prepareRoleConnection } from "./worker.mjs";
+import worker, { DeviceRelay, PairRateLimiter, notifyPeerReset, prepareRoleConnection } from "./worker.mjs";
 
 class MemoryStorage {
   constructor() {
@@ -242,6 +242,17 @@ test("authenticated reconnect replaces its stale role socket while default dupli
 
   assert.equal(prepareRoleConnection(ctx, "device", true), null);
   assert.deepEqual(closed, { code: 1012, reason: "replaced by authenticated reconnect" });
+  assert.deepEqual(notices, []);
+
+  notifyPeerReset(ctx, "device");
+  assert.deepEqual(notices, [{ v: 1, type: "relay.peer", online: false }]);
+});
+
+test("a fresh role connection resets its existing peer even without a stale same-role socket", () => {
+  const ctx = new FakeContext();
+  const notices = [];
+  ctx.sockets.device.push({ send: (message) => notices.push(JSON.parse(message)) });
+  notifyPeerReset(ctx, "host");
   assert.deepEqual(notices, [{ v: 1, type: "relay.peer", online: false }]);
 });
 
