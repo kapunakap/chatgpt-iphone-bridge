@@ -145,7 +145,8 @@ export class CellularBrowserPlugin {
   register(registry) {
     registry.addTool({
       name: "iphone_browser_device_status",
-      description: "Read redacted connection and session state for the paired cellular Bridge Browser.",
+      description:
+        "Read redacted connection and session state for the paired cellular Bridge Browser. This is the authoritative device gate for Bridge Browser and does not require USB; never call select_device or appium_* tools to validate this cellular path.",
       parameters: emptySchema,
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
       execute: async (args) => this.execute(emptySchema, args, () => this.deviceStatus()),
@@ -153,7 +154,7 @@ export class CellularBrowserPlugin {
     registry.addTool({
       name: "iphone_browser_session",
       description:
-        "Start, poll, cancel, or stop an approved foreground cellular Bridge Browser session. When start or status returns awaiting_approval, ask the user to tap Approve and keep polling with the operationId. Never cancel merely to clean up or prove delivery; cancel only when the user asks or the five-minute approval timeout expires.",
+        "Start, poll, cancel, or stop an approved foreground cellular Bridge Browser session without USB. For Bridge Browser, use only iphone_browser_* tools and never call select_device or appium_* tools. When start or status returns awaiting_approval, ask the user to tap Approve and keep polling with the operationId. Never cancel merely to clean up or prove delivery; cancel only when the user asks or the five-minute approval timeout expires.",
       parameters: sessionSchema,
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
       execute: async (args) => this.execute(sessionSchema, args, (parsed) => this.session(parsed)),
