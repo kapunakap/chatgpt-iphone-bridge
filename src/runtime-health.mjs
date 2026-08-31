@@ -6,11 +6,12 @@ export function normalizeRuntimeTarget(value) {
 
 export function assessRuntime(status, expectedLauncher) {
   const target = normalizeRuntimeTarget(status?.process?.target_value);
+  const expectedLaunchers = Array.isArray(expectedLauncher) ? expectedLauncher : [expectedLauncher];
   const checks = {
     process_running: status?.process_running === true,
     healthy: status?.healthy === true,
     ready: status?.ready === true,
-    target_matches: target === expectedLauncher,
+    target_matches: expectedLaunchers.includes(target),
   };
   const failures = Object.entries(checks).filter(([, ok]) => !ok).map(([name]) => name);
   return {

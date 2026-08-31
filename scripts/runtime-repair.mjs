@@ -11,7 +11,13 @@ import { assessRuntime, CANONICAL_RUNTIME_ALIAS, normalizeRuntimeTarget } from "
 
 const execFile = promisify(execFileCallback);
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
-const expectedLauncher = path.join(repoRoot, "scripts", "appium-mcp-current.sh");
+const expectedLauncher = path.join(
+  repoRoot,
+  "scripts",
+  process.env.IPHONE_BRIDGE_CELLULAR_ENABLED === "true"
+    ? "appium-mcp-cellular-current.sh"
+    : "appium-mcp-current.sh",
+);
 const connectScript = process.env.APPIUM_BRIDGE_CONNECT_SCRIPT ?? path.join(repoRoot, "scripts", "connect-tunnel.sh");
 const keyFile =
   process.env.CONTROL_PLANE_RUNTIME_API_KEY_FILE ??

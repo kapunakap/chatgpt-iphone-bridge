@@ -42,7 +42,7 @@ const transport = new StdioClientTransport({
   env: { APPIUM_BRIDGE_ARTIFACT_ROOT: artifactRoot },
   stderr: "pipe",
 });
-const client = new Client({ name: "chatgpt-iphone-bridge-tool", version: "0.2.0-beta.2" });
+const client = new Client({ name: "chatgpt-iphone-bridge-tool", version: "0.2.0-beta.3" });
 let stderr = "";
 transport.stderr?.setEncoding?.("utf8");
 transport.stderr?.on?.("data", (chunk) => {

@@ -196,7 +196,7 @@ function basePublicOperation(operation, now) {
 export class AsyncSessionPlugin {
   constructor(options = {}) {
     this.name = "openai-local-iphone-lifecycle";
-    this.version = "0.2.0-beta.2";
+    this.version = "0.2.0-beta.3";
     this.createSession = options.createSession ?? createSessionAction;
     this.deleteSession = options.deleteSession ?? deleteSessionAction;
     this.prepareDevice =

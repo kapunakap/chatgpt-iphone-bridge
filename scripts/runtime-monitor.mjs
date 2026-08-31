@@ -11,7 +11,10 @@ import { assessRuntime, CANONICAL_RUNTIME_ALIAS, monitorTransition } from "../sr
 
 const execFile = promisify(execFileCallback);
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
-const expectedLauncher = path.join(repoRoot, "scripts", "appium-mcp-current.sh");
+const expectedLaunchers = [
+  path.join(repoRoot, "scripts", "appium-mcp-current.sh"),
+  path.join(repoRoot, "scripts", "appium-mcp-cellular-current.sh"),
+];
 const artifactRoot =
   process.env.APPIUM_BRIDGE_ARTIFACT_ROOT ??
   path.join(os.homedir(), "Library", "Application Support", "chatgpt-iphone-bridge");
@@ -26,7 +29,7 @@ async function readAssessment() {
     const { stdout } = await execFile(tunnelClient, ["runtimes", "--json", "status", CANONICAL_RUNTIME_ALIAS], {
       timeout: 15_000,
     });
-    return assessRuntime(JSON.parse(stdout), expectedLauncher);
+    return assessRuntime(JSON.parse(stdout), expectedLaunchers);
   } catch (error) {
     return {
       alias: CANONICAL_RUNTIME_ALIAS,

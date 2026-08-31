@@ -32,3 +32,17 @@ test("monitor alerts only on unhealthy and recovery transitions", () => {
   assert.equal(monitorTransition({ state: "unhealthy" }, { state: "unhealthy" }), null);
   assert.equal(monitorTransition({ state: "unhealthy" }, { state: "healthy" }), "recovered");
 });
+
+test("runtime assessment can recognize both owned launcher modes", () => {
+  const cellular = "/repo/scripts/appium-mcp-cellular-current.sh";
+  const assessment = assessRuntime(
+    {
+      process_running: true,
+      healthy: true,
+      ready: true,
+      process: { target_value: `"${cellular}"` },
+    },
+    [launcher, cellular],
+  );
+  assert.equal(assessment.state, "healthy");
+});
