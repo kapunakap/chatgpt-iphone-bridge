@@ -35,6 +35,11 @@ export function createPairingPayload(relayUrl, started) {
   });
 }
 
+export function pairingQrFilePath(value) {
+  if (!path.isAbsolute(value)) throw new Error("IPHONE_BRIDGE_PAIRING_QR_FILE must be an absolute path");
+  return path.resolve(value);
+}
+
 function endpoint(relayUrl, pathname) {
   return new URL(pathname, `${relayHttpUrl(relayUrl).href.replace(/\/$/, "")}/`).href;
 }
@@ -89,6 +94,14 @@ async function pair() {
   const payload = createPairingPayload(baseUrl, started);
   console.log("Scan this QR in Bridge Browser, or paste the pairing payload manually:");
   console.log(await QRCode.toString(payload, { type: "terminal", small: true, errorCorrectionLevel: "M" }));
+  const pairingQrFile = process.env.IPHONE_BRIDGE_PAIRING_QR_FILE;
+  if (pairingQrFile) {
+    const target = pairingQrFilePath(pairingQrFile);
+    await fs.mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
+    await QRCode.toFile(target, payload, { errorCorrectionLevel: "M", margin: 2, width: 900 });
+    await fs.chmod(target, 0o600);
+    console.log(`pairing_qr_file=${target}`);
+  }
   console.log(`pairing_payload=${payload}`);
   console.log(`expires_at=${new Date(started.expiresAt).toISOString()}`);
 

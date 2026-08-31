@@ -194,6 +194,8 @@ npm run cellular:pair
 
 Scan the displayed QR in Bridge Browser, or paste the printed pairing payload. It expires after five minutes. The host identity is written outside the repository with mode `600`.
 
+If the terminal QR is not visible, set `IPHONE_BRIDGE_PAIRING_QR_FILE` to an absolute PNG path before running `cellular:pair`. The QR file is written mode `600`; delete it after pairing.
+
 ### 4. Enable cellular tools
 
 Pass the opt-in configuration when connecting the existing tunnel:
@@ -234,6 +236,21 @@ npm run cellular:ios:check
 `status` and `doctor` are redacted. `revoke` invalidates both relay credentials and removes the local host credential. Pair again before re-enabling cellular mode.
 
 Local tests and an unsigned iOS build do not prove cellular acceptance. Before release, verify the full flow through hosted ChatGPT with the iPhone unplugged, Wi-Fi disabled, and no active Appium session.
+
+### Local physical Bridge Browser QA
+
+The local-only harness launches only `com.kapunakap.chatgptiphonebridge.BridgeBrowser`. It refuses Safari and other apps, uses one persistent local Appium MCP connection, and never uses the OpenAI tunnel. Its unsafe Appium policy bypass exists only in that child process.
+
+Stop the managed tunnel first, keep the paired iPhone unlocked, then run:
+
+```bash
+IPHONE_BRIDGE_CELLULAR_ENABLED=true \
+IPHONE_BRIDGE_CELLULAR_RELAY_URL=https://your-relay.workers.dev \
+IPHONE_BRIDGE_CELLULAR_IDENTITY_FILE="$HOME/.config/chatgpt-iphone-bridge/cellular-host.json" \
+npm run qa:bridge-browser:physical
+```
+
+Use `-- --diagnose-only` to capture the native connection screen and require `hostOnline`, `deviceOnline`, and `secureReady` without starting GTA Labin. Full runs retain private screenshots and route checkpoints under ignored `artifacts/bridge-browser-physical-qa/`. Success requires WebGPU, CREATE, ENTER, sustained physical GAS/BRAKE/steering actions, route completion, background close/reconnect, zero Appium sessions, and no remaining lease directory. Any partial run is a failure and does not count as Safari acceptance.
 
 ## Neutral Safari fixture
 

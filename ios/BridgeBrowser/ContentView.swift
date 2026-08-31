@@ -43,6 +43,7 @@ struct ContentView: View {
         Circle().fill(relay.secureReady ? .green : relay.relayConnected ? .orange : .gray).frame(
           width: 10, height: 10)
         Text(model.statusMessage).font(.subheadline).lineLimit(1)
+          .accessibilityIdentifier("bridge.status")
         Spacer()
         if model.activeSessionId != nil {
           Text("ACTIVE").font(.caption.bold()).foregroundStyle(.red)
@@ -50,6 +51,7 @@ struct ContentView: View {
       }
       if let error = model.errorMessage ?? relay.lastError {
         Text(error).font(.caption).foregroundStyle(.red).lineLimit(2)
+          .accessibilityIdentifier("bridge.error")
       }
     }
     .padding(.horizontal)
@@ -62,11 +64,15 @@ struct ContentView: View {
       Section("Pair with the Mac") {
         Text("Run npm run cellular:pair on the Mac. Scan its QR or paste the full pairing payload.")
           .font(.footnote)
-        TextEditor(text: $model.pairingText).frame(minHeight: 120).font(
-          .system(.caption, design: .monospaced))
+        TextEditor(text: $model.pairingText)
+          .frame(minHeight: 120)
+          .font(.system(.caption, design: .monospaced))
+          .accessibilityIdentifier("bridge.pairing-payload")
         Button("Scan pairing QR") { showScanner = true }
-        Button("Pair") { Task { await model.pair() } }.disabled(
-          model.pairingText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+          .accessibilityIdentifier("bridge.scan-pairing")
+        Button("Pair") { Task { await model.pair() } }
+          .disabled(model.pairingText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+          .accessibilityIdentifier("bridge.pair")
       }
       Section("Free prototype limit") {
         Text(
@@ -88,15 +94,21 @@ struct ContentView: View {
       Form {
         Section("Connection") {
           LabeledContent("Relay", value: relay.relayConnected ? "Connected" : "Disconnected")
+            .accessibilityIdentifier("bridge.relay-status")
           LabeledContent("Mac", value: relay.hostOnline ? "Online" : "Offline")
+            .accessibilityIdentifier("bridge.host-status")
           LabeledContent("Encryption", value: relay.secureReady ? "Ready" : "Waiting")
+            .accessibilityIdentifier("bridge.encryption-status")
           Button("Reconnect") { model.enterForeground() }
+            .accessibilityIdentifier("bridge.reconnect")
         }
         Section("Local data") {
           Button("Clear browsing data", role: .destructive) {
             Task { await model.clearWebsiteData() }
           }
+          .accessibilityIdentifier("bridge.clear-data")
           Button("Forget pairing", role: .destructive) { model.forgetPairing() }
+            .accessibilityIdentifier("bridge.forget-pairing")
         }
         Section {
           Text("Keep this app open. iOS backgrounding or locking ends the remote session.")
@@ -109,6 +121,7 @@ struct ContentView: View {
   private func approvalView(_ pending: PendingApproval) -> some View {
     VStack(alignment: .leading, spacing: 10) {
       Text("Remote session request").font(.headline)
+        .accessibilityIdentifier("bridge.approval-heading")
       Text(pending.initialURL.absoluteString).font(.caption).textSelection(.enabled)
       Text("Approved top-level origins:").font(.caption.bold())
       ForEach(pending.allowedOrigins, id: \.self) {
@@ -116,8 +129,10 @@ struct ContentView: View {
       }
       HStack {
         Button("Reject", role: .destructive) { model.rejectPending() }
+          .accessibilityIdentifier("bridge.reject")
         Spacer()
         Button("Approve") { model.approvePending() }.buttonStyle(.borderedProminent)
+          .accessibilityIdentifier("bridge.approve")
       }
     }
     .padding()
@@ -144,6 +159,7 @@ struct ContentView: View {
       Text(browser.currentURL?.host ?? "Loading…").font(.caption).lineLimit(1)
       Spacer()
       Button("Stop", role: .destructive) { Task { await model.stopActiveSession() } }
+        .accessibilityIdentifier("bridge.stop")
     }
     .padding(.horizontal)
     .padding(.vertical, 7)

@@ -215,6 +215,7 @@ export class CellularBrowserPlugin {
       configured: true,
       paired: true,
       alias: this.alias,
+      hostOnline: status.relayConnected === true,
       ...status,
       operation: publicOperation(this.operation, this.now),
     };

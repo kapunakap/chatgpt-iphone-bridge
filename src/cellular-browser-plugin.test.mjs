@@ -82,6 +82,14 @@ test("cellular plugin exposes seven namespaced tools", () => {
   ]);
 });
 
+test("device status exposes the explicit host, device, and secure readiness gate", async () => {
+  const { tools } = setup(new FakeClient({ ready: true }));
+  const status = payload(await tools.get("iphone_browser_device_status").execute({}));
+  assert.equal(status.hostOnline, true);
+  assert.equal(status.deviceOnline, true);
+  assert.equal(status.secureReady, true);
+});
+
 test("session start is non-blocking, waits for device, and becomes ready after approval", async () => {
   const sessionId = randomUUID();
   const client = new FakeClient({

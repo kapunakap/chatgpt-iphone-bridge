@@ -31,7 +31,13 @@ final class BrowserController: NSObject, ObservableObject {
     webView.navigationDelegate = self
     webView.uiDelegate = self
     webView.allowsBackForwardNavigationGestures = false
-    webView.isInspectable = false
+    #if DEBUG
+      webView.isInspectable = true
+    #else
+      webView.isInspectable = false
+    #endif
+    webView.accessibilityIdentifier = "bridge.webview"
+    webView.accessibilityLabel = "Bridge Browser Web Content"
   }
 
   func begin(initialURL: URL, allowedOrigins: [String]) throws {
