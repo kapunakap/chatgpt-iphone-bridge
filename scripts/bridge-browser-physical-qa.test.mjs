@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
 
 import {
@@ -82,10 +85,10 @@ test("screenshots are retained under the run artifact root without path traversa
 });
 
 test("cleanup gate rejects remaining lease directories", async () => {
-  const root = await import("node:fs/promises").then(({ mkdtemp }) => mkdtemp("/private/tmp/bridge-qa-test-"));
-  await import("node:fs/promises").then(({ mkdir }) => mkdir(`${root}/runtime/device-test.lock`, { recursive: true }));
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "bridge-qa-test-"));
+  await fs.mkdir(path.join(root, "runtime", "device-test.lock"), { recursive: true });
   await assert.rejects(assertNoLeaseDirectories(root), /device lease/);
-  await import("node:fs/promises").then(({ rm }) => rm(root, { recursive: true, force: true }));
+  await fs.rm(root, { recursive: true, force: true });
 });
 
 test("unconditional cleanup runs after success, timeout, and cancellation", async () => {
