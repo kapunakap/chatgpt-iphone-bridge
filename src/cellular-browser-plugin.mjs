@@ -93,6 +93,14 @@ function publicOperation(operation, now) {
   if (operation.sessionId) payload.sessionId = operation.sessionId;
   if (operation.result) payload.result = operation.result;
   if (operation.error) payload.error = operation.error;
+  if (["awaiting_device", "awaiting_approval"].includes(operation.state)) {
+    payload.approvalExpiresAt = new Date(operation.approvalExpiresAt).toISOString();
+  }
+  if (operation.state === "awaiting_approval") {
+    payload.userActionRequired = true;
+    payload.nextAction =
+      "Ask the user to open Bridge Browser and tap Approve, then poll status with this operationId. Do not cancel unless the user explicitly asks or the approval timeout expires.";
+  }
   return payload;
 }
 
@@ -144,7 +152,8 @@ export class CellularBrowserPlugin {
     });
     registry.addTool({
       name: "iphone_browser_session",
-      description: "Start, poll, cancel, or stop an approved foreground cellular Bridge Browser session.",
+      description:
+        "Start, poll, cancel, or stop an approved foreground cellular Bridge Browser session. When start or status returns awaiting_approval, ask the user to tap Approve and keep polling with the operationId. Never cancel merely to clean up or prove delivery; cancel only when the user asks or the five-minute approval timeout expires.",
       parameters: sessionSchema,
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
       execute: async (args) => this.execute(sessionSchema, args, (parsed) => this.session(parsed)),
@@ -254,6 +263,7 @@ export class CellularBrowserPlugin {
       stage: this.client.status().secureReady ? "approval" : "device_connection",
       startedAt,
       updatedAt: startedAt,
+      approvalExpiresAt: startedAt + this.approvalTimeoutMs,
       cleanupPending: false,
       initialUrl: normalized.initialUrl,
       allowedOrigins: normalized.allowedOrigins,

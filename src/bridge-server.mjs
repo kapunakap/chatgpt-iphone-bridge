@@ -36,7 +36,8 @@ export async function createIphoneBridgeServer(options = {}) {
     ...(cellularPlugin
       ? [
           "The optional cellular tools control a dedicated foreground Bridge Browser, not Safari or native apps.",
-          "Start iphone_browser_session and poll until the iPhone user opens the app and approves the named HTTPS origins.",
+          "Start iphone_browser_session, ask the user to tap Approve when it returns awaiting_approval, and keep polling the same operationId for up to five minutes.",
+          "Do not cancel an awaiting cellular approval merely to prove delivery or clean up; cancel only when the user explicitly asks or the approval timeout expires.",
           "Stop the cellular session when testing is complete.",
         ]
       : []),
