@@ -1,9 +1,9 @@
 # ChatGPT iPhone Bridge
 <img width="1672" height="941" alt="ChatGPT Image Aug 30, 2026, 03_29_42 AM" src="https://github.com/user-attachments/assets/f3e87553-787e-4692-88e1-790056cd4e5f" />
 
-Control Mobile Safari on one USB-connected iPhone from ChatGPT through OpenAI Secure MCP Tunnel and Appium MCP. An opt-in experimental mode can instead control a dedicated Bridge Browser app on an iPhone over cellular.
+Control Mobile Safari on one USB-connected iPhone from ChatGPT through OpenAI Secure MCP Tunnel and Appium MCP. An opt-in cellular mode can instead control a dedicated Bridge Browser app on an iPhone over cellular or Wi-Fi.
 
-This is an unofficial beta candidate. It opens no public inbound port and does not expose Appium directly to the internet.
+This is an unofficial project. It opens no public inbound port and does not expose Appium directly to the internet.
 
 ## Architecture
 
@@ -17,7 +17,7 @@ ChatGPT
   -> Mobile Safari
 ```
 
-The experimental cellular path is separate:
+The cellular path is separate:
 
 ```text
 ChatGPT
@@ -164,9 +164,9 @@ bash scripts/stop.sh
 - `prune` removes screenshots older than seven days; override with `APPIUM_BRIDGE_RETENTION_DAYS`.
 - `stop` is idempotent and refuses to stop an alias that targets another launcher.
 
-## Experimental cellular Bridge Browser
+## Cellular Bridge Browser
 
-This zero-cost prototype lets the target iPhone leave the Mac and use cellular data. The Mac must stay powered on and connected to the existing Secure MCP Tunnel. The user must manually open Bridge Browser, approve the requested HTTPS origins, and keep the app in the foreground.
+This zero-cost mode lets the target iPhone leave the Mac and use cellular data. The Mac must stay powered on and connected to the existing Secure MCP Tunnel. The user must manually open Bridge Browser, approve the requested HTTPS origins, and keep the app in the foreground.
 
 Cloudflare Durable Objects are available on the Workers Free plan. If the free quota is exhausted, the relay fails closed. No public port is opened on the Mac.
 
@@ -191,7 +191,7 @@ BRIDGE_BROWSER_BUNDLE_ID=com.example.myiphonebridge \
 npm run cellular:ios:install
 ```
 
-A free Personal Team provisioning profile expires after seven days. Rerun the install command every week. This prototype does not use TestFlight or push notifications.
+A free Personal Team provisioning profile expires after seven days. Rerun the install command every week. This setup does not use TestFlight or push notifications.
 
 ### 3. Pair the phone
 
@@ -232,6 +232,37 @@ Disabled mode still exposes exactly the original 33 Appium tools. Enabled mode a
 Start `iphone_browser_session` with an HTTPS `initialUrl` and explicit `allowedOrigins`. Poll while the phone is closed. Open Bridge Browser, review the origins, tap **Approve**, and keep the app foreground. Stop the session when finished.
 
 Only approved HTTPS top-level origins are allowed. Downloads, custom URL schemes, file URLs, arbitrary remote JavaScript, media permissions, native apps, Safari, and unattended background control are not supported.
+
+### Example: mobile gameplay testing
+
+Bridge Browser can test a browser-based mobile game through the same touch-oriented UI that a player sees on the iPhone. ChatGPT can locate DOM controls, tap a context button, press and hold a throttle, drag a joystick within normalized element coordinates, read HUD text, and capture screenshot checkpoints. The iPhone may use Wi-Fi or cellular, but Bridge Browser must remain open in the foreground.
+
+For example, the following prompt tests the public GTA Labin build without USB or Appium:
+
+```text
+Use only the Local iPhone iphone_browser_* tools. Do not use Appium, Safari,
+select_device, or arbitrary JavaScript.
+
+1. Call iphone_browser_device_status and require secureReady=true.
+2. Start iphone_browser_session for:
+   initialUrl: https://kapunakap.github.io/gta-labin/
+   allowedOrigins: ["https://kapunakap.github.io"]
+3. Keep polling the same operation. Ask me to open Bridge Browser and tap
+   Approve when the native approval card appears. Do not cancel it.
+4. When ready, take a snapshot and confirm LABIN 52220 is visible.
+5. Find CSS [data-touch-action=context], tap it, refind it, and verify its
+   text changes from ENTER to EXIT.
+6. Find CSS [data-touch-action=gas] and press it for 1500 ms at x=0.5,y=0.5.
+7. Find CSS [data-touch-stick=move] and drag from x=0.5,y=0.5 to
+   endX=0.8,endY=0.5 for 700 ms.
+8. Capture a snapshot and screenshot. Report the visible speed/distance and
+   whether it changed from the previous checkpoint.
+9. Stop the exact session and require state=closed and cleanupPending=false.
+```
+
+`iphone_browser_element` supports `tap`, `press`, and `drag` without adding another MCP tool. A press is bounded to 10 seconds. Drag coordinates are relative to the found element: `0,0` is its top-left and `1,1` is its bottom-right. Refind an element after the page replaces it or navigation changes the document.
+
+This workflow is suitable for smoke tests, HUD assertions, menus, virtual buttons, and short movement checkpoints. It does not turn Bridge Browser into native-app automation. Games that require hardware buttons, native APIs, trusted OS gestures, pointer lock, or controls that are not exposed through the page may still need the separate USB/Appium physical QA harness.
 
 ### Cellular operations
 
@@ -309,7 +340,7 @@ await startIphoneBridgeServer({
 
 External packages can enable the paired cellular browser with `cellular: { enabled: true, relayUrl, identityPath }`; it remains disabled when this option and the matching environment flag are absent.
 
-The bridge package version is `0.2.0-beta.3`; consumers should use an exact version.
+Consumers should install an exact released package version instead of a floating range.
 
 ## Security
 
