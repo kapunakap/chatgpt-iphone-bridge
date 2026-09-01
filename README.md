@@ -224,6 +224,37 @@ Start `iphone_browser_session` with an HTTPS `initialUrl` and explicit `allowedO
 
 Only approved HTTPS top-level origins are allowed. Downloads, custom URL schemes, file URLs, arbitrary remote JavaScript, media permissions, native apps, Safari, and unattended background control are not supported.
 
+### Example: mobile gameplay testing
+
+Bridge Browser can test a browser-based mobile game through the same touch-oriented UI that a player sees on the iPhone. ChatGPT can locate DOM controls, tap a context button, press and hold a throttle, drag a joystick within normalized element coordinates, read HUD text, and capture screenshot checkpoints. The iPhone may use Wi-Fi or cellular, but Bridge Browser must remain open in the foreground.
+
+For example, the following prompt tests the public GTA Labin build without USB or Appium:
+
+```text
+Use only the Local iPhone iphone_browser_* tools. Do not use Appium, Safari,
+select_device, or arbitrary JavaScript.
+
+1. Call iphone_browser_device_status and require secureReady=true.
+2. Start iphone_browser_session for:
+   initialUrl: https://kapunakap.github.io/gta-labin/
+   allowedOrigins: ["https://kapunakap.github.io"]
+3. Keep polling the same operation. Ask me to open Bridge Browser and tap
+   Approve when the native approval card appears. Do not cancel it.
+4. When ready, take a snapshot and confirm LABIN 52220 is visible.
+5. Find CSS [data-touch-action=context], tap it, refind it, and verify its
+   text changes from ENTER to EXIT.
+6. Find CSS [data-touch-action=gas] and press it for 1500 ms at x=0.5,y=0.5.
+7. Find CSS [data-touch-stick=move] and drag from x=0.5,y=0.5 to
+   endX=0.8,endY=0.5 for 700 ms.
+8. Capture a snapshot and screenshot. Report the visible speed/distance and
+   whether it changed from the previous checkpoint.
+9. Stop the exact session and require state=closed and cleanupPending=false.
+```
+
+`iphone_browser_element` supports `tap`, `press`, and `drag` without adding another MCP tool. A press is bounded to 10 seconds. Drag coordinates are relative to the found element: `0,0` is its top-left and `1,1` is its bottom-right. Refind an element after the page replaces it or navigation changes the document.
+
+This workflow is suitable for smoke tests, HUD assertions, menus, virtual buttons, and short movement checkpoints. It does not turn Bridge Browser into native-app automation. Games that require hardware buttons, native APIs, trusted OS gestures, pointer lock, or controls that are not exposed through the page may still need the separate USB/Appium physical QA harness.
+
 ### Cellular operations
 
 ```bash
