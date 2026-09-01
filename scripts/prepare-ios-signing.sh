@@ -13,7 +13,7 @@ fail() {
 }
 
 [[ "$(uname -s)" == "Darwin" ]] || fail "This command requires macOS."
-[[ -n "$DEVICE_UDID" ]] || fail "Set IOS_DEVICE_UDID to the connected iPhone UDID."
+[[ -n "$DEVICE_UDID" ]] || fail "Set IOS_DEVICE_UDID to the connected iPhone or iPad UDID."
 [[ -n "$TEAM_ID" ]] || fail "Set DEVELOPMENT_TEAM to the Apple Personal Team ID."
 [[ "$BUNDLE_ID_BASE" != *.xctrunner ]] || fail "WDA_BUNDLE_ID_BASE must omit .xctrunner; Xcode adds that suffix to the runner profile."
 [[ -d "$WDA_PROJECT" ]] || fail "Bundled WebDriverAgent project not found. Run bash scripts/bootstrap-local.sh."
@@ -37,4 +37,4 @@ xcodebuild \
 
 printf '\nWDA_SIGNING_BUILD_OK=1\n'
 printf 'Run bash scripts/ios-signing-status.sh next.\n'
-printf 'On the iPhone, trust the Developer App under Settings -> General -> VPN & Device Management before the first WDA launch.\n'
+printf 'On the iOS device, trust the Developer App under Settings -> General -> VPN & Device Management before the first WDA launch.\n'

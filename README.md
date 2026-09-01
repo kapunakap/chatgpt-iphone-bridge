@@ -1,6 +1,6 @@
 # ChatGPT iPhone Bridge
 
-Control Mobile Safari on one USB-connected iPhone from ChatGPT through OpenAI Secure MCP Tunnel and Appium MCP.
+Control Mobile Safari on a USB-connected pool of iPhones and iPads from ChatGPT through OpenAI Secure MCP Tunnel and Appium MCP.
 
 This is an unofficial beta candidate. It opens no public inbound port and does not expose Appium directly to the internet.
 
@@ -10,9 +10,9 @@ This is an unofficial beta candidate. It opens no public inbound port and does n
 ChatGPT
   -> OpenAI Secure MCP Tunnel
   -> tunnel-client on your Mac
-  -> Local iPhone MCP server
+  -> Local iOS MCP server
   -> XCUITest / WebDriverAgent
-  -> USB-connected iPhone
+  -> USB-connected iPhone/iPad pool
   -> Mobile Safari
 ```
 
@@ -21,13 +21,13 @@ The bridge preserves the upstream Appium catalog and adds two non-blocking lifec
 - `appium_prepare_ios_real_device_async`
 - `appium_create_session_async`
 
-Both support `start`, `status`, and `cancel`. Only one preparation or owned session may run across local bridge processes.
+Both support `start`, `status`, and `cancel`. Session creation and owned sessions may run independently on different UDIDs. WDA preparation is serialized because its signing cache is shared. A per-device lease prevents two local bridge processes from controlling the same device.
 
 ## Requirements
 
 - macOS with Xcode 16 or newer
 - Node.js 24 or newer
-- a paired, trusted iPhone with Developer Mode enabled
+- one or more paired, trusted iPhones or iPads with Developer Mode enabled
 - Safari Web Inspector and Remote Automation enabled
 - an Apple Development identity and suitable WDA provisioning profile
 - OpenAI Secure MCP Tunnel access with Tunnels Read + Use
@@ -79,11 +79,12 @@ Create a ChatGPT developer-mode app named **Local iPhone**, choose **Tunnel**, s
 
 ## ChatGPT workflow
 
-1. Call `select_device` with `platform=ios` and `iosDeviceType=real`.
-2. Call `appium_prepare_ios_real_device_async` with `action=start` and the selected UDID.
-3. Poll `action=status`. Pick a recommended profile from the discovery result.
-4. Start preparation again with that profile UUID and poll until `state=ready`.
-5. Combine the returned `capabilitiesHint` with:
+1. Call `select_device` with `platform=ios` and `iosDeviceType=real` to list the pool.
+2. Call `select_device` again with `deviceUdid` for every device you intend to use.
+3. Call `appium_prepare_ios_real_device_async` with `action=start` and one selected UDID.
+4. Poll with its `operationId`. Pick a recommended profile from the discovery result.
+5. Start preparation again with that UDID and profile UUID, then poll until `state=ready`.
+6. Combine the returned `capabilitiesHint` with:
 
 ```json
 {
@@ -92,9 +93,12 @@ Create a ChatGPT developer-mode app named **Local iPhone**, choose **Tunnel**, s
 }
 ```
 
-6. Call `appium_create_session_async` with `action=start`, then poll until `state=ready`.
-7. Use normal Appium interaction tools with the returned session.
-8. Delete the owned session when finished.
+7. Call `appium_create_session_async` with `action=start`, the target `udid`, and `capabilities`, then poll by `operationId` until `state=ready`.
+8. Repeat steps 3-7 for other selected devices. Prepare devices one at a time; session creation and active sessions may overlap across devices.
+9. Use normal Appium interaction tools with the returned `sessionId`. Always pass it when the pool has multiple sessions.
+10. Delete each owned session when finished.
+
+The old single-device flow remains valid: after selecting exactly one device, `udid` may be omitted from session creation and status/cancel may omit `operationId` while only one lifecycle operation exists.
 
 Blocking preparation and creation, remote Appium URLs, session attachment, simulators, Android, native apps, and unprepared WDA paths fail closed.
 

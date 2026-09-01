@@ -4,7 +4,7 @@
 
 OpenAI Secure MCP Tunnel is the only remote transport. Appium MCP remains a local stdio process and no public Appium listener is created.
 
-Anyone who can invoke the connected ChatGPT app may be able to control the unlocked phone and interact with signed-in Safari pages. Treat workspace and app access as temporary physical access to the device.
+Anyone who can invoke the connected ChatGPT app may be able to control every unlocked device in the selected pool and interact with signed-in Safari pages. Treat workspace and app access as temporary physical access to those devices.
 
 Stop the managed runtime when it is not being used.
 
@@ -20,7 +20,8 @@ Unless the local operator explicitly enables unsafe full Appium behavior, the br
 - disables Appium relaxed security;
 - blocks file, clipboard, application, permissions, geolocation, settings, and device-control tools unless named locally;
 - binds legacy WDA port forwarding to `127.0.0.1`;
-- permits only one preparation or owned session across local bridge processes.
+- permits only one preparation or owned session per UDID across local bridge processes;
+- serializes WDA preparation across the pool to protect the shared signing cache.
 
 These controls reduce accidental exposure. They do not provide per-user authorization inside one ChatGPT workspace.
 
@@ -44,7 +45,7 @@ The included fixture is for controlled acceptance only. Its LAN binding is opt-i
 
 - Use the async lifecycle tools for long preparation and creation calls.
 - Cancelled or timed-out creation deletes any late-created owned session.
-- A cleanup failure retains the cross-process lease and blocks new work.
+- A cleanup failure retains that device's cross-process lease and blocks new work on that device without blocking the rest of the pool.
 - Disconnect and stop attempt owned-session cleanup before releasing the lease.
 - `stop.sh` refuses to stop a managed alias that targets a different launcher.
 

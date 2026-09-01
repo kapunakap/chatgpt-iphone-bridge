@@ -7,20 +7,21 @@ import { AsyncSessionPlugin } from "./async-session-plugin.mjs";
 
 function setup(options = {}) {
   const state = { sessions: [], createArgs: null, deletes: [], acquired: 0, released: 0 };
+  let operationNumber = 0;
   const core = {
     listSessions: () => state.sessions,
     getSessionId: () => state.sessions[0]?.sessionId ?? null,
   };
   const tools = new Map();
   const plugin = new AsyncSessionPlugin({
-    makeId: () => "operation-1",
+    makeId: () => `operation-${++operationNumber}`,
     prepareTimeoutMs: 100,
     createTimeoutMs: 100,
     cleanupTimeoutMs: 50,
     lease: {
       acquire: async () => {
         state.acquired += 1;
-        return "lease-1";
+        return `lease-${state.acquired}`;
       },
       release: async () => {
         state.released += 1;
@@ -97,17 +98,17 @@ test("async preparation caches only a ready matching WDA result", async () => {
   const status = await tools.get("appium_prepare_ios_real_device_async").execute({ action: "status" });
   assert.equal(payload(status).state, "ready");
   assert.equal(payload(status).result.capabilitiesHint["appium:udid"], undefined);
-  assert.equal(plugin.prepared.udid, "selected-device");
-  assert.equal(state.released, 1);
+  assert.equal(plugin.preparedByUdid.get("selected-device").udid, "selected-device");
+  assert.equal(state.released, 2);
 });
 
 test("async Safari creation injects the selected device and holds the lease until delete", async () => {
   const { plugin, tools, state } = setup();
   await select(plugin);
-  plugin.prepared = {
+  plugin.preparedByUdid.set("selected-device", {
     udid: "selected-device",
     capabilitiesHint: { "appium:prebuiltWDAPath": "/secure/WDA.ipa" },
-  };
+  });
   const capabilities = {
     browserName: "Safari",
     "appium:usePreinstalledWDA": true,
@@ -128,7 +129,7 @@ test("async Safari creation injects the selected device and holds the lease unti
     { toolName: "appium_session_management", args: { action: "delete", sessionId: "session-1" } },
     { isError: false, content: [] },
   );
-  assert.equal(plugin.operation.state, "closed");
+  assert.equal(plugin.operations.get(payload(started).operationId).state, "closed");
   assert.equal(state.released, 1);
 });
 
@@ -165,7 +166,7 @@ test("cancel while creating deletes a late-created session", async () => {
   resolveCreate({ content: [{ type: "text", text: "created late" }] });
   await settle();
   assert.deepEqual(state.deletes, ["late-session"]);
-  assert.equal(plugin.operation.state, "cancelled");
+  assert.equal(plugin.operations.get(payload(cancelling).operationId).state, "cancelled");
   assert.equal(state.released, 1);
 });
 
@@ -176,13 +177,173 @@ test("failed preparation never replaces a previous prepared result", async () =>
     }),
   });
   await select(plugin);
-  plugin.prepared = { udid: "selected-device", capabilitiesHint: { "appium:prebuiltWDAPath": "/old.ipa" } };
-  await tools.get("appium_prepare_ios_real_device_async").execute({
+  plugin.preparedByUdid.set("selected-device", {
+    udid: "selected-device",
+    capabilitiesHint: { "appium:prebuiltWDAPath": "/old.ipa" },
+  });
+  const started = await tools.get("appium_prepare_ios_real_device_async").execute({
     action: "start",
     udid: "selected-device",
     provisioningProfileUuid: "profile-1",
   });
   await settle();
-  assert.equal(plugin.operation.state, "failed");
-  assert.equal(plugin.prepared.capabilitiesHint["appium:prebuiltWDAPath"], "/old.ipa");
+  assert.equal(plugin.operations.get(payload(started).operationId).state, "failed");
+  assert.equal(
+    plugin.preparedByUdid.get("selected-device").capabilitiesHint["appium:prebuiltWDAPath"],
+    "/old.ipa",
+  );
+});
+
+test("different selected devices can hold independent Safari sessions", async () => {
+  const gates = new Map();
+  const { plugin, tools, state } = setup({
+    createSession: async ({ capabilities }) => {
+      const udid = capabilities["appium:udid"];
+      await new Promise((resolve) => gates.set(udid, resolve));
+      const sessionId = `session-${udid}`;
+      state.sessions.push({
+        sessionId,
+        ownership: "owned",
+        capabilities: { "appium:udid": udid },
+      });
+      return { content: [{ type: "text", text: `IOS session created successfully with ID: ${sessionId}` }] };
+    },
+  });
+  await select(plugin, "device-a");
+  await select(plugin, "device-b");
+  for (const udid of ["device-a", "device-b"]) {
+    plugin.preparedByUdid.set(udid, {
+      udid,
+      capabilitiesHint: { "appium:prebuiltWDAPath": `/secure/${udid}.ipa` },
+    });
+  }
+
+  const create = tools.get("appium_create_session_async");
+  const first = await create.execute({
+    action: "start",
+    udid: "device-a",
+    capabilities: {
+      browserName: "Safari",
+      "appium:usePreinstalledWDA": true,
+      "appium:prebuiltWDAPath": "/secure/device-a.ipa",
+    },
+  });
+  const second = await create.execute({
+    action: "start",
+    udid: "device-b",
+    capabilities: {
+      browserName: "Safari",
+      "appium:usePreinstalledWDA": true,
+      "appium:prebuiltWDAPath": "/secure/device-b.ipa",
+    },
+  });
+  await settle();
+  assert.equal(state.acquired, 2);
+  assert.equal(gates.size, 2);
+
+  gates.get("device-b")();
+  gates.get("device-a")();
+  await settle();
+  const firstStatus = await create.execute({ action: "status", operationId: payload(first).operationId });
+  const secondStatus = await create.execute({ action: "status", operationId: payload(second).operationId });
+  assert.equal(payload(firstStatus).sessionId, "session-device-a");
+  assert.equal(payload(secondStatus).sessionId, "session-device-b");
+  assert.equal(state.released, 0);
+
+  state.sessions = state.sessions.filter((session) => session.sessionId !== "session-device-a");
+  await plugin.afterCall(
+    { toolName: "appium_session_management", args: { action: "delete", sessionId: "session-device-a" } },
+    { isError: false, content: [] },
+  );
+  assert.equal(plugin.operations.get(payload(first).operationId).state, "closed");
+  assert.equal(plugin.operations.get(payload(second).operationId).state, "ready");
+  assert.equal(state.released, 1);
+});
+
+test("pool preparation serializes the shared WDA signing cache", async () => {
+  let resolvePreparation;
+  const preparation = new Promise((resolve) => {
+    resolvePreparation = resolve;
+  });
+  const resources = new Map();
+  const tokens = new Map();
+  let tokenNumber = 0;
+  const { plugin, tools } = setup({
+    lease: {
+      acquire: async (_kind, resource) => {
+        if (resources.has(resource)) throw new Error("resource is already active");
+        const token = `resource-${++tokenNumber}`;
+        resources.set(resource, token);
+        tokens.set(token, resource);
+        return token;
+      },
+      release: async (token) => {
+        const resource = tokens.get(token);
+        resources.delete(resource);
+        tokens.delete(token);
+      },
+    },
+    prepareDevice: () => preparation,
+  });
+  await select(plugin, "device-a");
+  await select(plugin, "device-b");
+
+  const prepare = tools.get("appium_prepare_ios_real_device_async");
+  const first = await prepare.execute({ action: "start", udid: "device-a", provisioningProfileUuid: "profile" });
+  await settle();
+  const second = await prepare.execute({
+    action: "start",
+    udid: "device-b",
+    provisioningProfileUuid: "profile",
+  });
+  assert.equal(second.isError, true);
+  assert.equal(second.structuredContent.error.code, "LEASE_BUSY");
+  assert.equal(resources.has("device-b"), false);
+
+  resolvePreparation({
+    content: [
+      {
+        type: "text",
+        text: JSON.stringify({
+          mode: "build",
+          ready: true,
+          udid: "device-a",
+          capabilitiesHint: { "appium:prebuiltWDAPath": "/secure/WDA.ipa" },
+        }),
+      },
+    ],
+  });
+  await settle();
+  const status = await prepare.execute({ action: "status", operationId: payload(first).operationId });
+  assert.equal(payload(status).state, "ready");
+  assert.equal(resources.size, 0);
+});
+
+test("pool status requires an operation ID once more than one operation exists", async () => {
+  let sessionNumber = 0;
+  const { plugin, tools, state } = setup({
+    requirePreparation: false,
+    createSession: async ({ capabilities }) => {
+      const sessionId = `pool-session-${++sessionNumber}`;
+      state.sessions.push({ sessionId, ownership: "owned", capabilities });
+      return { content: [{ type: "text", text: `IOS session created successfully with ID: ${sessionId}` }] };
+    },
+  });
+  await select(plugin, "device-a");
+  await select(plugin, "device-b");
+  await tools.get("appium_create_session_async").execute({
+    action: "start",
+    udid: "device-a",
+    capabilities: { browserName: "Safari" },
+  });
+  await settle();
+  await tools.get("appium_create_session_async").execute({
+    action: "start",
+    udid: "device-b",
+    capabilities: { browserName: "Safari" },
+  });
+  await settle();
+  const status = await tools.get("appium_create_session_async").execute({ action: "status" });
+  assert.equal(status.isError, true);
+  assert.match(status.structuredContent.error.message, /operationId is required/);
 });

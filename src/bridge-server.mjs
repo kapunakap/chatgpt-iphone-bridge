@@ -8,11 +8,12 @@ import { AsyncSessionPlugin } from "./async-session-plugin.mjs";
 import { IosSessionSafetyPlugin } from "./ios-session-safety-plugin.mjs";
 
 const DEFAULT_INSTRUCTIONS = [
-  "This server controls one locally connected real iPhone for Safari testing.",
-  "Select the real iPhone before preparation or session creation.",
+  "This server controls a local pool of USB-connected real iPhones and iPads for Safari testing.",
+  "Select every target device by UDID before preparation or session creation.",
   "Use appium_prepare_ios_real_device_async start/status/cancel instead of the blocking preparation tool.",
-  "Use appium_create_session_async start/status/cancel instead of appium_session_management action=create.",
-  "Delete the owned session when testing is complete.",
+  "Use appium_create_session_async start/status/cancel instead of appium_session_management action=create; pass udid for pool operations.",
+  "When multiple operations or sessions exist, always pass operationId or sessionId.",
+  "Delete every owned session when testing is complete.",
 ];
 
 export async function createIphoneBridgeServer(options = {}) {

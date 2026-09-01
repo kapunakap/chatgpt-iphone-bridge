@@ -26,10 +26,10 @@ check direct_mcp_smoke node "$REPO_ROOT/scripts/appium-mcp-smoke.mjs"
 printf '\n== Physical device presence ==\n'
 device_count="$(xcrun xctrace list devices 2>/dev/null | awk '
   /^== Simulators ==/ {simulators=1}
-  !simulators && /iPhone/ && /\([0-9A-Fa-f-]{20,}\)$/ {count++}
+  !simulators && /(iPhone|iPad)/ && /\([0-9A-Fa-f-]{20,}\)$/ {count++}
   END {print count+0}
 ')"
-printf 'connected_real_iphones=%s\n' "$device_count"
+printf 'connected_real_ios_devices=%s\n' "$device_count"
 if [[ "$device_count" -lt 1 ]]; then failures=$((failures + 1)); fi
 
 printf '\n== Signing ==\n'

@@ -15,6 +15,7 @@ const prepareSchema = z.object({
 
 const createSchema = z.object({
   action: z.enum(["start", "status", "cancel"]),
+  udid: z.string().min(1).optional(),
   capabilities: z.union([z.string(), z.record(z.string(), z.unknown())]).optional(),
   operationId: z.string().min(1).optional(),
 });
@@ -59,6 +60,15 @@ function parseCapabilities(value) {
     throw new Error("capabilities must be a JSON object");
   }
   return { ...parsed };
+}
+
+function findCreatedSessionId(result, sessions, beforeIds) {
+  const match = resultText(result).match(/session created successfully with ID:\s*([^\s]+)/i);
+  if (match && sessions.some((session) => session.sessionId === match[1] && session.ownership === "owned")) {
+    return match[1];
+  }
+  const created = sessions.filter((session) => session.ownership === "owned" && !beforeIds.has(session.sessionId));
+  return created.length === 1 ? created[0].sessionId : null;
 }
 
 function validateInitialUrl(capabilities) {
@@ -126,9 +136,10 @@ export class AsyncSessionPlugin {
     this.lease = options.lease ?? new DeviceLease();
     this.requirePreparation = options.requirePreparation ?? true;
     this.core = null;
-    this.selectedUdid = null;
-    this.prepared = null;
-    this.operation = null;
+    this.selectedUdids = new Set();
+    this.preparedByUdid = new Map();
+    this.operations = new Map();
+    this.lastOperationId = null;
     this.shuttingDown = false;
   }
 
@@ -137,7 +148,7 @@ export class AsyncSessionPlugin {
     registry.addTool({
       name: "appium_prepare_ios_real_device_async",
       description:
-        "Prepare a selected real iPhone without blocking the MCP request. Start, poll status, or cancel the operation.",
+        "Prepare one selected real iPhone or iPad without blocking the MCP request. WDA signing is serialized because its cache is shared. Start, poll status, or cancel by operationId.",
       parameters: prepareSchema,
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
       execute: async (rawArgs) => {
@@ -151,7 +162,7 @@ export class AsyncSessionPlugin {
     registry.addTool({
       name: "appium_create_session_async",
       description:
-        "Create a prepared real-iPhone Safari session without blocking the MCP request. Start, poll status, or cancel the operation.",
+        "Create a prepared real-iPhone or iPad Safari session without blocking the MCP request. Pass udid when more than one device is selected; sessions for different UDIDs may coexist. Poll or cancel by operationId.",
       parameters: createSchema,
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
       execute: async (rawArgs) => {
@@ -182,27 +193,48 @@ export class AsyncSessionPlugin {
     }
 
     const inputHash = canonicalHash(kind, normalized);
-    if (this.operation && ["starting", "cancelling"].includes(this.operation.state)) {
-      if (this.operation.kind === kind && this.operation.inputHash === inputHash) {
-        return successContent(publicOperation(this.operation, this.now));
-      }
+    const deviceOperations = [...this.operations.values()].filter(
+      (operation) => operation.udid === normalized.udid,
+    );
+    const duplicate = deviceOperations.find(
+      (operation) =>
+        operation.kind === kind &&
+        operation.inputHash === inputHash &&
+        (["starting", "cancelling"].includes(operation.state) ||
+          (operation.kind === "create" && operation.state === "ready" && operation.sessionId)),
+    );
+    if (duplicate) return successContent(publicOperation(duplicate, this.now));
+
+    const pending = deviceOperations.find((operation) => ["starting", "cancelling"].includes(operation.state));
+    if (pending) {
       return errorContent(
-        new Error(`operation ${this.operation.id} is still ${this.operation.state}`),
+        new Error(`operation ${pending.id} for this device is still ${pending.state}`),
         "OPERATION_IN_PROGRESS",
       );
     }
-    if (this.operation?.state === "ready" && this.operation.kind === "create" && this.operation.sessionId) {
-      if (this.operation.inputHash === inputHash) return successContent(publicOperation(this.operation, this.now));
+    const readySession = deviceOperations.find(
+      (operation) => operation.state === "ready" && operation.kind === "create" && operation.sessionId,
+    );
+    if (readySession) {
       return errorContent(new Error("an owned Safari session is already active"), "SESSION_ACTIVE");
     }
-    if (this.core.listSessions().some((session) => session.ownership === "owned")) {
-      return errorContent(new Error("an owned Appium session is already active"), "SESSION_ACTIVE");
+    if (
+      this.core
+        .listSessions()
+        .some(
+          (session) =>
+            session.ownership === "owned" && session.capabilities?.["appium:udid"] === normalized.udid,
+        )
+    ) {
+      return errorContent(new Error("an owned Appium session is already active for this device"), "SESSION_ACTIVE");
     }
 
-    let leaseToken;
+    const leaseTokens = [];
     try {
-      leaseToken = await this.lease.acquire(kind);
+      leaseTokens.push(await this.lease.acquire(kind, normalized.udid));
+      if (kind === "prepare") leaseTokens.push(await this.lease.acquire(kind, "shared-wda-preparation"));
     } catch (error) {
+      await Promise.allSettled(leaseTokens.map((token) => this.lease.release(token)));
       return errorContent(error, "LEASE_BUSY");
     }
 
@@ -210,6 +242,7 @@ export class AsyncSessionPlugin {
     const operation = {
       id: this.makeId(),
       kind,
+      udid: normalized.udid,
       inputHash,
       args: normalized,
       state: "starting",
@@ -222,14 +255,15 @@ export class AsyncSessionPlugin {
       result: null,
       error: null,
       controller: new AbortController(),
-      leaseToken,
+      leaseTokens,
       timer: null,
       promise: null,
     };
     const timeoutMs = kind === "prepare" ? this.prepareTimeoutMs : this.createTimeoutMs;
     operation.timer = setTimeout(() => this.timeout(operation, timeoutMs), timeoutMs);
     operation.timer.unref?.();
-    this.operation = operation;
+    this.operations.set(operation.id, operation);
+    this.lastOperationId = operation.id;
     this.schedule(() => {
       operation.promise = this.run(operation);
       void operation.promise;
@@ -239,8 +273,9 @@ export class AsyncSessionPlugin {
 
   validatePrepareArgs(args) {
     if (!args.udid) throw new Error("udid is required for prepare start");
-    if (!this.selectedUdid) throw new Error("select a real iPhone before preparation");
-    if (args.udid !== this.selectedUdid) throw new Error("prepare UDID does not match the selected iPhone");
+    if (!this.selectedUdids.has(args.udid)) {
+      throw new Error("select this real iOS device before preparation");
+    }
     return {
       udid: args.udid,
       ...(args.provisioningProfileUuid ? { provisioningProfileUuid: args.provisioningProfileUuid } : {}),
@@ -250,26 +285,27 @@ export class AsyncSessionPlugin {
 
   validateCreateArgs(args) {
     if (args.capabilities == null) throw new Error("capabilities are required for create start");
-    if (!this.selectedUdid) throw new Error("select a real iPhone before session creation");
     const capabilities = parseCapabilities(args.capabilities);
     if (capabilities.browserName !== "Safari") throw new Error("only browserName=Safari is allowed");
     if (capabilities["appium:app"] || capabilities["appium:bundleId"]) {
       throw new Error("native application capabilities are not allowed");
     }
     const explicitUdid = capabilities["appium:udid"];
-    if (explicitUdid && explicitUdid !== this.selectedUdid) {
-      throw new Error("capability UDID does not match the selected iPhone");
+    if (args.udid && explicitUdid && args.udid !== explicitUdid) {
+      throw new Error("top-level UDID does not match the capability UDID");
     }
-    capabilities["appium:udid"] = this.selectedUdid;
-    capabilities["appium:deviceName"] ||= "iPhone";
+    const udid = args.udid ?? explicitUdid ?? (this.selectedUdids.size === 1 ? [...this.selectedUdids][0] : null);
+    if (!udid) throw new Error("udid is required when more than one iOS device is selected");
+    if (!this.selectedUdids.has(udid)) throw new Error("select this real iOS device before session creation");
+    capabilities["appium:udid"] = udid;
+    capabilities["appium:deviceName"] ||= "iOS Device";
     capabilities["appium:wdaLaunchTimeout"] ||= 30_000;
     validateInitialUrl(capabilities);
 
     if (this.requirePreparation) {
-      if (!this.prepared || this.prepared.udid !== this.selectedUdid) {
-        throw new Error("successfully prepare the selected iPhone before session creation");
-      }
-      const expectedPath = this.prepared.capabilitiesHint?.["appium:prebuiltWDAPath"];
+      const prepared = this.preparedByUdid.get(udid);
+      if (!prepared) throw new Error("successfully prepare this iOS device before session creation");
+      const expectedPath = prepared.capabilitiesHint?.["appium:prebuiltWDAPath"];
       if (!expectedPath || capabilities["appium:prebuiltWDAPath"] !== expectedPath) {
         throw new Error("prebuilt WDA path does not match the successful preparation result");
       }
@@ -277,11 +313,11 @@ export class AsyncSessionPlugin {
         throw new Error("appium:usePreinstalledWDA=true is required");
       }
     }
-    return { capabilities };
+    return { udid, capabilities };
   }
 
   timeout(operation, timeoutMs) {
-    if (this.operation !== operation || operation.state !== "starting") return;
+    if (this.operations.get(operation.id) !== operation || operation.state !== "starting") return;
     operation.state = "timed_out";
     operation.stage = "cleanup";
     operation.updatedAt = this.now();
@@ -342,10 +378,10 @@ export class AsyncSessionPlugin {
       if (payload.udid !== operation.args.udid || !payload.capabilitiesHint?.["appium:prebuiltWDAPath"]) {
         throw new Error("preparation returned inconsistent device or WDA capabilities");
       }
-      this.prepared = {
+      this.preparedByUdid.set(payload.udid, {
         udid: payload.udid,
         capabilitiesHint: { ...payload.capabilitiesHint },
-      };
+      });
     }
     operation.result = sanitizePrepareResult(payload);
     operation.state = "ready";
@@ -357,10 +393,7 @@ export class AsyncSessionPlugin {
   async runCreate(operation) {
     const beforeIds = new Set(this.core.listSessions().map((session) => session.sessionId));
     const result = await this.createSession({ platform: "ios", capabilities: operation.args.capabilities });
-    const newOwned = this.core
-      .listSessions()
-      .filter((session) => session.ownership === "owned" && !beforeIds.has(session.sessionId));
-    const sessionId = newOwned.length === 1 ? newOwned[0].sessionId : null;
+    const sessionId = findCreatedSessionId(result, this.core.listSessions(), beforeIds);
 
     if (operation.cancelRequested || operation.state === "timed_out") {
       if (sessionId) await this.cleanupSession(operation, sessionId);
@@ -390,7 +423,10 @@ export class AsyncSessionPlugin {
   async cancel(operationId) {
     const operation = this.getOperation(operationId);
     if (operation instanceof Error) return errorContent(operation, "UNKNOWN_OPERATION");
-    if (["cancelled", "failed", "timed_out", "closed", "cleanup_failed"].includes(operation.state)) {
+    if (
+      ["cancelled", "failed", "timed_out", "closed", "cleanup_failed"].includes(operation.state) ||
+      (operation.kind === "prepare" && operation.state === "ready")
+    ) {
       return successContent(publicOperation(operation, this.now));
     }
     operation.cancelRequested = true;
@@ -438,47 +474,62 @@ export class AsyncSessionPlugin {
   }
 
   getOperation(operationId) {
-    if (!this.operation) return new Error("no lifecycle operation exists");
-    if (operationId && this.operation.id !== operationId) return new Error(`unknown operationId: ${operationId}`);
-    return this.operation;
+    if (operationId) return this.operations.get(operationId) ?? new Error(`unknown operationId: ${operationId}`);
+    if (this.operations.size === 0) return new Error("no lifecycle operation exists");
+    if (this.operations.size === 1) return this.operations.values().next().value;
+    const current = [...this.operations.values()].filter(
+      (operation) =>
+        ["starting", "cancelling"].includes(operation.state) ||
+        (operation.kind === "create" && operation.state === "ready" && operation.sessionId),
+    );
+    if (current.length === 1) return current[0];
+    if (current.length === 0 && this.lastOperationId) return this.operations.get(this.lastOperationId);
+    return new Error("operationId is required when multiple lifecycle operations are active");
   }
 
   async releaseOperationLease(operation) {
-    if (!operation.leaseToken) return;
-    await this.lease.release(operation.leaseToken);
-    operation.leaseToken = null;
+    if (!operation.leaseTokens?.length) return;
+    const tokens = operation.leaseTokens;
+    const results = await Promise.allSettled(tokens.map((token) => this.lease.release(token)));
+    operation.leaseTokens = tokens.filter((_token, index) => results[index].status === "rejected");
+    const rejected = results.find((result) => result.status === "rejected");
+    if (rejected) throw rejected.reason;
   }
 
   async afterCall(ctx, result) {
     if (ctx.toolName === "select_device") {
-      this.selectedUdid = null;
-      this.prepared = null;
       if (result.isError || ctx.args.platform !== "ios" || ctx.args.iosDeviceType !== "real") return;
       try {
         const selected = parseJsonText(result, "device selection");
         const udid = selected?.capabilities?.["appium:udid"];
-        if (typeof udid === "string" && udid) this.selectedUdid = udid;
-      } catch {
-        this.selectedUdid = null;
-      }
+        if (typeof udid === "string" && udid) this.selectedUdids.add(udid);
+      } catch {}
       return;
     }
 
     if (ctx.toolName === "appium_session_management" && ctx.args.action === "delete") {
-      if (this.operation?.state === "ready" && !this.core.listSessions().some((session) => session.ownership === "owned")) {
-        this.operation.sessionId = null;
-        this.operation.state = "closed";
-        this.operation.stage = "finished";
-        this.operation.updatedAt = this.now();
-        await this.releaseOperationLease(this.operation);
+      const liveSessionIds = new Set(this.core.listSessions().map((session) => session.sessionId));
+      for (const operation of this.operations.values()) {
+        if (operation.state !== "ready" || !operation.sessionId || liveSessionIds.has(operation.sessionId)) continue;
+        operation.sessionId = null;
+        operation.state = "closed";
+        operation.stage = "finished";
+        operation.updatedAt = this.now();
+        await this.releaseOperationLease(operation);
       }
     }
   }
 
   async shutdown() {
     this.shuttingDown = true;
-    const operation = this.operation;
-    if (!operation) return;
+    const results = await Promise.allSettled(
+      [...this.operations.values()].map((operation) => this.shutdownOperation(operation)),
+    );
+    const errors = results.filter((result) => result.status === "rejected").map((result) => result.reason);
+    if (errors.length > 0) throw new AggregateError(errors, "one or more device operations failed to shut down");
+  }
+
+  async shutdownOperation(operation) {
     operation.cancelRequested = true;
     operation.controller.abort();
     if (operation.timer) clearTimeout(operation.timer);
@@ -502,7 +553,7 @@ export class AsyncSessionPlugin {
       ]);
     }
 
-    if (!this.core.listSessions().some((session) => session.ownership === "owned")) {
+    if (!operation.sessionId || !this.core.listSessions().some((session) => session.sessionId === operation.sessionId)) {
       await this.releaseOperationLease(operation);
     }
   }

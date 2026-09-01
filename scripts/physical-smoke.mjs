@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 const fixtureUrl = process.env.BRIDGE_FIXTURE_URL;
 const fixtureSelector = process.env.BRIDGE_FIXTURE_SELECTOR ?? "#bridge-ready";
 const fixtureMarker = process.env.BRIDGE_FIXTURE_MARKER ?? "BRIDGE_FIXTURE_READY";
-if (!fixtureUrl) throw new Error("Set BRIDGE_FIXTURE_URL to the neutral fixture URL reachable from the iPhone");
+if (!fixtureUrl) throw new Error("Set BRIDGE_FIXTURE_URL to the neutral fixture URL reachable from the iOS device");
 const parsedFixtureUrl = new URL(fixtureUrl);
 if (!new Set(["http:", "https:"]).has(parsedFixtureUrl.protocol)) {
   throw new Error("BRIDGE_FIXTURE_URL must use http or https");
@@ -78,7 +78,7 @@ try {
   };
   const selected = json(await call("select_device", selectArgs, 60_000), "select_device");
   const udid = selected?.capabilities?.["appium:udid"];
-  if (!udid) throw new Error("select_device did not select exactly one real iPhone");
+  if (!udid) throw new Error("select_device did not select exactly one real iOS device");
 
   const discovery = await startAndPoll("appium_prepare_ios_real_device_async", { udid }, 60_000);
   const profileUuid =
@@ -99,7 +99,7 @@ try {
   };
   const creation = await startAndPoll(
     "appium_create_session_async",
-    { capabilities: JSON.stringify(capabilities) },
+    { udid, capabilities: JSON.stringify(capabilities) },
     90_000,
   );
   activeSessionId = creation.sessionId;
@@ -109,7 +109,7 @@ try {
     await call("appium_mobile_device_info", { action: "info", sessionId: activeSessionId }),
     "device info",
   );
-  if (deviceInfo.isSimulator !== false) throw new Error("Smoke session is not a physical iPhone");
+  if (deviceInfo.isSimulator !== false) throw new Error("Smoke session is not a physical iOS device");
 
   const contexts = text(await call("appium_context", { action: "list", sessionId: activeSessionId }));
   const webContext = contexts.match(/WEBVIEW_[^"\s,\]]+/)?.[0];

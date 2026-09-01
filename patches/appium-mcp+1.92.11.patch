@@ -1,5 +1,5 @@
 diff --git a/node_modules/appium-mcp/dist/plugin.d.ts b/node_modules/appium-mcp/dist/plugin.d.ts
-index 90bc6ad..66435ae 100644
+index 90bc6ad..d5b10b3 100644
 --- a/node_modules/appium-mcp/dist/plugin.d.ts
 +++ b/node_modules/appium-mcp/dist/plugin.d.ts
 @@ -39,10 +39,9 @@ export interface ToolCallContext {
@@ -16,7 +16,7 @@ index 90bc6ad..66435ae 100644
   * Extension point for composing app-specific behavior into Appium MCP.
   */
 diff --git a/node_modules/appium-mcp/dist/plugin.js b/node_modules/appium-mcp/dist/plugin.js
-index 45d6dd4..f594e6f 100644
+index 45d6dd4..fc32d6a 100644
 --- a/node_modules/appium-mcp/dist/plugin.js
 +++ b/node_modules/appium-mcp/dist/plugin.js
 @@ -205,36 +205,51 @@ export class PluginManager {
@@ -91,10 +91,35 @@ index 45d6dd4..f594e6f 100644
              return originalAddTool({ ...toolDef, execute: wrappedExecute });
          });
 diff --git a/node_modules/appium-mcp/dist/tools/session/create-session.js b/node_modules/appium-mcp/dist/tools/session/create-session.js
-index b63984d..a068a4f 100644
+index b63984d..7f29d64 100644
 --- a/node_modules/appium-mcp/dist/tools/session/create-session.js
 +++ b/node_modules/appium-mcp/dist/tools/session/create-session.js
-@@ -258,7 +258,7 @@ export async function createSessionAction(args) {
+@@ -142,10 +142,13 @@ export async function validateIOSDeviceSelection(deviceType) {
+  */
+ export async function buildIOSCapabilities(configCaps, customCaps, isRemoteServer) {
+     const selectedLocalDevice = getSelectedLocalDevice();
+-    const selectedIOSDevice = !isRemoteServer && selectedLocalDevice?.platform === 'ios' ? selectedLocalDevice : null;
++    const givenCaps = { ...configCaps, ...customCaps };
++    const hasExplicitDeviceTarget = Boolean(givenCaps['appium:udid']);
++    const selectedIOSDevice = !isRemoteServer && !hasExplicitDeviceTarget && selectedLocalDevice?.platform === 'ios'
++        ? selectedLocalDevice
++        : null;
+     const deviceType = selectedIOSDevice?.type || null;
+     await validateIOSDeviceSelection(deviceType);
+-    const givenCaps = { ...configCaps, ...customCaps };
+     const selectedDeviceUdid = !isRemoteServer && !givenCaps['appium:udid'] && selectedIOSDevice?.platform === 'ios'
+         ? selectedIOSDevice.udid
+         : undefined;
+@@ -179,7 +182,7 @@ export async function buildIOSCapabilities(configCaps, customCaps, isRemoteServe
+         // customCaps should override additionalCaps.
+         ...customCaps,
+     };
+-    if (selectedIOSDevice) {
++    if (selectedLocalDevice) {
+         // clear the selected device since we're now using it to create a session,
+         // so it doesn't affect future session creations that don't specify a device.
+         // Clearing it later would cause race conditions if multiple session creations happen in parallel.
+@@ -258,7 +261,7 @@ export async function createSessionAction(args) {
                  ...customCapabilities,
              };
          }
@@ -103,7 +128,7 @@ index b63984d..a068a4f 100644
          let sessionId;
          if (remoteServerUrl) {
              try {
-@@ -368,12 +368,12 @@ async function loadCapabilitiesConfig() {
+@@ -368,12 +371,12 @@ async function loadCapabilitiesConfig() {
  function createDriverForPlatform(platform) {
      if (platform === 'android') {
          const driver = new AndroidUiautomator2Driver({});
@@ -210,10 +235,38 @@ index c34ccbf..7190bc5 100644
  
        return originalAddTool({...toolDef, execute: wrappedExecute});
 diff --git a/node_modules/appium-mcp/src/tools/session/create-session.ts b/node_modules/appium-mcp/src/tools/session/create-session.ts
-index bf09bdc..cb71971 100644
+index bf09bdc..707f99e 100644
 --- a/node_modules/appium-mcp/src/tools/session/create-session.ts
 +++ b/node_modules/appium-mcp/src/tools/session/create-session.ts
-@@ -334,10 +334,7 @@ export async function createSessionAction(args: {
+@@ -190,12 +190,16 @@ export async function buildIOSCapabilities(
+   isRemoteServer: boolean,
+ ): Promise<Capabilities> {
+   const selectedLocalDevice = getSelectedLocalDevice();
+-  const selectedIOSDevice = !isRemoteServer && selectedLocalDevice?.platform === 'ios' ? selectedLocalDevice : null;
++  const givenCaps = {...configCaps, ...customCaps};
++  const hasExplicitDeviceTarget = Boolean(givenCaps['appium:udid']);
++  const selectedIOSDevice =
++    !isRemoteServer && !hasExplicitDeviceTarget && selectedLocalDevice?.platform === 'ios'
++      ? selectedLocalDevice
++      : null;
+
+   const deviceType = selectedIOSDevice?.type || null;
+   await validateIOSDeviceSelection(deviceType);
+
+-  const givenCaps = {...configCaps, ...customCaps};
+   const selectedDeviceUdid =
+     !isRemoteServer && !givenCaps['appium:udid'] && selectedIOSDevice?.platform === 'ios'
+       ? selectedIOSDevice.udid
+@@ -239,7 +243,7 @@ export async function buildIOSCapabilities(
+     ...customCaps,
+   };
+
+-  if (selectedIOSDevice) {
++  if (selectedLocalDevice) {
+     // clear the selected device since we're now using it to create a session,
+     // so it doesn't affect future session creations that don't specify a device.
+     // Clearing it later would cause race conditions if multiple session creations happen in parallel.
+@@ -334,10 +338,7 @@ export async function createSessionAction(args: {
        } as Capabilities;
      }
  
@@ -225,7 +278,7 @@ index bf09bdc..cb71971 100644
      let sessionId;
      if (remoteServerUrl) {
        try {
-@@ -480,12 +477,12 @@ async function loadCapabilitiesConfig(): Promise<CapabilitiesConfig> {
+@@ -480,12 +481,12 @@ async function loadCapabilitiesConfig(): Promise<CapabilitiesConfig> {
  function createDriverForPlatform(platform: 'android' | 'ios'): any {
    if (platform === 'android') {
      const driver = new AndroidUiautomator2Driver({} as any);

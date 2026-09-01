@@ -2,7 +2,7 @@
   "name": "chatgpt-iphone-bridge",
   "version": "0.2.0-beta.1",
   "private": true,
-  "description": "Local iPhone Safari automation for ChatGPT through OpenAI Secure MCP Tunnel and Appium MCP.",
+  "description": "Local iPhone and iPad Safari pool automation for ChatGPT through OpenAI Secure MCP Tunnel and Appium MCP.",
   "license": "MIT",
   "type": "module",
   "exports": {
