@@ -69,6 +69,15 @@ bash scripts/prepare-ios-signing.sh
 
 Device IDs, team IDs, profile UUIDs, signed WDA files, screenshots, and runtime keys must stay outside the repository.
 
+### Agent-assisted setup
+
+If an agent is doing the setup, give it terminal access to the Mac and point it at this repository. It should:
+
+1. Run `bash scripts/bootstrap-local.sh`, then `npm run doctor`.
+2. Fix every local check it can, following **Install** and **Connect** below; ask the user only for actions that require the iPhone, Apple/Xcode approval, or Secure MCP Tunnel / ChatGPT UI access.
+3. Keep runtime keys and signing material out of chat and the repository, and keep device/profile IDs, screenshots, and generated WDA files out of the repository.
+4. Finish with `npm test`, `npm run status`, and a real-device smoke/session check.
+
 ## Connect
 
 Store the runtime key in a user-owned mode-`600` file:
