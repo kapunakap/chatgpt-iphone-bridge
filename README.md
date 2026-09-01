@@ -1,9 +1,9 @@
 # ChatGPT iPhone Bridge
 <img width="1672" height="941" alt="ChatGPT Image Aug 30, 2026, 03_29_42 AM" src="https://github.com/user-attachments/assets/f3e87553-787e-4692-88e1-790056cd4e5f" />
 
-Control Mobile Safari on one USB-connected iPhone from ChatGPT through OpenAI Secure MCP Tunnel and Appium MCP. An opt-in experimental mode can instead control a dedicated Bridge Browser app on an iPhone over cellular.
+Control Mobile Safari on one USB-connected iPhone from ChatGPT through OpenAI Secure MCP Tunnel and Appium MCP. An opt-in cellular mode can instead control a dedicated Bridge Browser app on an iPhone over cellular or Wi-Fi.
 
-This is an unofficial beta candidate. It opens no public inbound port and does not expose Appium directly to the internet.
+This is an unofficial project. It opens no public inbound port and does not expose Appium directly to the internet.
 
 ## Architecture
 
@@ -17,7 +17,7 @@ ChatGPT
   -> Mobile Safari
 ```
 
-The experimental cellular path is separate:
+The cellular path is separate:
 
 ```text
 ChatGPT
@@ -155,9 +155,9 @@ bash scripts/stop.sh
 - `prune` removes screenshots older than seven days; override with `APPIUM_BRIDGE_RETENTION_DAYS`.
 - `stop` is idempotent and refuses to stop an alias that targets another launcher.
 
-## Experimental cellular Bridge Browser
+## Cellular Bridge Browser
 
-This zero-cost prototype lets the target iPhone leave the Mac and use cellular data. The Mac must stay powered on and connected to the existing Secure MCP Tunnel. The user must manually open Bridge Browser, approve the requested HTTPS origins, and keep the app in the foreground.
+This zero-cost mode lets the target iPhone leave the Mac and use cellular data. The Mac must stay powered on and connected to the existing Secure MCP Tunnel. The user must manually open Bridge Browser, approve the requested HTTPS origins, and keep the app in the foreground.
 
 Cloudflare Durable Objects are available on the Workers Free plan. If the free quota is exhausted, the relay fails closed. No public port is opened on the Mac.
 
@@ -182,7 +182,7 @@ BRIDGE_BROWSER_BUNDLE_ID=com.example.myiphonebridge \
 npm run cellular:ios:install
 ```
 
-A free Personal Team provisioning profile expires after seven days. Rerun the install command every week. This prototype does not use TestFlight or push notifications.
+A free Personal Team provisioning profile expires after seven days. Rerun the install command every week. This setup does not use TestFlight or push notifications.
 
 ### 3. Pair the phone
 
@@ -331,7 +331,7 @@ await startIphoneBridgeServer({
 
 External packages can enable the paired cellular browser with `cellular: { enabled: true, relayUrl, identityPath }`; it remains disabled when this option and the matching environment flag are absent.
 
-The bridge package version is `0.2.0-beta.3`; consumers should use an exact version.
+Consumers should install an exact released package version instead of a floating range.
 
 ## Security
 
