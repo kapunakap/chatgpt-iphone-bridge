@@ -69,10 +69,6 @@ bash scripts/prepare-ios-signing.sh
 
 Device IDs, team IDs, profile UUIDs, signed WDA files, screenshots, and runtime keys must stay outside the repository.
 
-### Agent-assisted setup
-
-**Agent prompt:** Set this up for me end-to-end on this Mac using the instructions in this README, and only ask me for things you cannot do yourself.
-
 ## Connect
 
 Store the runtime key in a user-owned mode-`600` file:
