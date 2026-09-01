@@ -71,12 +71,7 @@ Device IDs, team IDs, profile UUIDs, signed WDA files, screenshots, and runtime 
 
 ### Agent-assisted setup
 
-If an agent is doing the setup, give it terminal access to the Mac and point it at this repository. It should:
-
-1. Run `bash scripts/bootstrap-local.sh`, then `npm run doctor`.
-2. Fix every local check it can, following **Install** and **Connect** below; ask the user only for actions that require the iPhone, Apple/Xcode approval, or Secure MCP Tunnel / ChatGPT UI access.
-3. Keep runtime keys and signing material out of chat and the repository, and keep device/profile IDs, screenshots, and generated WDA files out of the repository.
-4. Finish with `npm test`, `npm run status`, and a real-device smoke/session check.
+**Agent prompt:** Set this up for me end-to-end on this Mac using the instructions in this README, and only ask me for things you cannot do yourself.
 
 ## Connect
 
