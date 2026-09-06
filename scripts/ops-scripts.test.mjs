@@ -22,6 +22,7 @@ async function fakeEnvironment(t, status, statusExit = 0) {
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   const bin = path.join(root, "bin");
   const calls = path.join(root, "calls.log");
+  await fs.writeFile(path.join(root, "package.json"), '{"type":"commonjs"}\n');
   await fs.mkdir(bin);
   await fs.writeFile(
     path.join(bin, "tunnel-client"),
