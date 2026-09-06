@@ -82,6 +82,168 @@ test("a valid replacement is reused without another Xcode build", async () => {
   assert.equal(result.refreshed, false);
 });
 
+test("missing WDA bootstraps from the unique BridgeBrowser anchor", async () => {
+  const anchor = profile({
+    uuid: "bridge-browser",
+    bundleId: "com.example.BridgeBrowser",
+    expiresAt: new Date("2026-09-12T00:00:00Z"),
+  });
+  const other = profile({
+    uuid: "other-app",
+    bundleId: "com.example.OtherApp",
+    expiresAt: new Date("2026-09-12T00:00:00Z"),
+  });
+  const fresh = profile({
+    uuid: "fresh-bootstrap-wda",
+    bundleId: "com.example.BridgeBrowser.WebDriverAgentRunner.xctrunner",
+    expiresAt: new Date("2026-09-12T00:00:00Z"),
+  });
+  let loads = 0;
+  let signingInputs;
+  const result = await ensureFreshWdaProvisioningProfile(
+    { udid: UDID },
+    {
+      now: () => NOW,
+      loadProfiles: async () => (++loads === 1 ? [other, anchor] : [other, anchor, fresh]),
+      runSigning: async (inputs) => {
+        signingInputs = inputs;
+      },
+    },
+  );
+  assert.deepEqual(signingInputs, {
+    udid: UDID,
+    teamId: "TEAM123456",
+    bundleIdBase: "com.example.BridgeBrowser.WebDriverAgentRunner",
+  });
+  assert.equal(result.refreshed, true);
+  assert.equal(result.profileUuid, "fresh-bootstrap-wda");
+});
+
+test("missing WDA falls back to the only valid explicit development anchor", async () => {
+  const anchor = profile({
+    uuid: "only-app",
+    bundleId: "com.example.OnlyApp",
+    expiresAt: new Date("2026-09-12T00:00:00Z"),
+  });
+  const fresh = profile({
+    uuid: "fresh-fallback-wda",
+    bundleId: "com.example.OnlyApp.WebDriverAgentRunner.xctrunner",
+    expiresAt: new Date("2026-09-12T00:00:00Z"),
+  });
+  let loads = 0;
+  let signingInputs;
+  const result = await ensureFreshWdaProvisioningProfile(
+    { udid: UDID },
+    {
+      now: () => NOW,
+      loadProfiles: async () => (++loads === 1 ? [anchor] : [anchor, fresh]),
+      runSigning: async (inputs) => {
+        signingInputs = inputs;
+      },
+    },
+  );
+  assert.equal(signingInputs.bundleIdBase, "com.example.OnlyApp.WebDriverAgentRunner");
+  assert.equal(result.profileUuid, "fresh-fallback-wda");
+});
+
+test("missing WDA refuses ambiguous companion, fallback, and team anchors", async (t) => {
+  const freshDate = new Date("2026-09-12T00:00:00Z");
+  const cases = [
+    {
+      name: "companion anchors",
+      profiles: [
+        profile({ uuid: "bridge-a", bundleId: "com.example.a.BridgeBrowser", expiresAt: freshDate }),
+        profile({ uuid: "bridge-b", bundleId: "com.example.b.BridgeBrowser", expiresAt: freshDate }),
+      ],
+    },
+    {
+      name: "fallback anchors",
+      profiles: [
+        profile({ uuid: "app-a", bundleId: "com.example.AppA", expiresAt: freshDate }),
+        profile({ uuid: "app-b", bundleId: "com.example.AppB", expiresAt: freshDate }),
+      ],
+    },
+    {
+      name: "profile team",
+      profiles: [
+        profile({
+          uuid: "ambiguous-team",
+          bundleId: "com.example.BridgeBrowser",
+          expiresAt: freshDate,
+          teamIds: ["TEAM123456", "TEAM654321"],
+        }),
+        profile({ uuid: "otherwise-valid", bundleId: "com.example.OtherApp", expiresAt: freshDate }),
+      ],
+    },
+  ];
+
+  for (const item of cases) {
+    await t.test(item.name, async () => {
+      const result = await ensureFreshWdaProvisioningProfile(
+        { udid: UDID },
+        {
+          now: () => NOW,
+          loadProfiles: async () => item.profiles,
+          runSigning: async () => assert.fail("ambiguous anchors must not trigger signing"),
+        },
+      );
+      assert.equal(result.refreshed, false);
+      assert.deepEqual(result.validProfileUuids, []);
+    });
+  }
+});
+
+test("missing WDA ignores wildcard, non-development, other-device, and expired anchors", async () => {
+  const profiles = [
+    profile({
+      uuid: "wildcard",
+      bundleId: "com.example.*",
+      expiresAt: new Date("2026-09-12T00:00:00Z"),
+    }),
+    profile({
+      uuid: "distribution",
+      bundleId: "com.example.DistributionApp",
+      expiresAt: new Date("2026-09-12T00:00:00Z"),
+      type: "Distribution",
+    }),
+    profile({
+      uuid: "other-device",
+      bundleId: "com.example.OtherDeviceApp",
+      expiresAt: new Date("2026-09-12T00:00:00Z"),
+      devices: ["00008110-009999999999801E"],
+    }),
+    profile({ uuid: "expired-app", bundleId: "com.example.ExpiredApp" }),
+  ];
+  const result = await ensureFreshWdaProvisioningProfile(
+    { udid: UDID },
+    {
+      now: () => NOW,
+      loadProfiles: async () => profiles,
+      runSigning: async () => assert.fail("invalid anchors must not trigger signing"),
+    },
+  );
+  assert.equal(result.refreshed, false);
+  assert.deepEqual(result.validProfileUuids, []);
+});
+
+test("an explicit missing profile UUID does not trigger anchor bootstrap", async () => {
+  const anchor = profile({
+    uuid: "bridge-browser",
+    bundleId: "com.example.BridgeBrowser",
+    expiresAt: new Date("2026-09-12T00:00:00Z"),
+  });
+  const result = await ensureFreshWdaProvisioningProfile(
+    { udid: UDID, requestedProfileUuid: "missing-requested-profile" },
+    {
+      now: () => NOW,
+      loadProfiles: async () => [anchor],
+      runSigning: async () => assert.fail("explicit profile behavior must remain discovery-only"),
+    },
+  );
+  assert.equal(result.refreshed, false);
+  assert.deepEqual(result.validProfileUuids, []);
+});
+
 test("non-WDA profile selection fails before Appium can create a bundle mismatch", async () => {
   await assert.rejects(
     ensureFreshWdaProvisioningProfile(

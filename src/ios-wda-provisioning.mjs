@@ -25,9 +25,13 @@ function profileBundleId(profile) {
 }
 
 function profileMetadata(profile, filePath) {
+  const teamIds = [
+    ...new Set(Array.isArray(profile.TeamIdentifier) ? profile.TeamIdentifier.filter(Boolean) : []),
+  ];
   return {
     uuid: profile.UUID,
-    teamId: profile.TeamIdentifier?.[0] ?? "",
+    teamId: teamIds[0] ?? "",
+    teamIds,
     bundleId: profileBundleId(profile),
     expiresAt: profile.ExpirationDate instanceof Date ? profile.ExpirationDate : new Date(profile.ExpirationDate),
     devices: Array.isArray(profile.ProvisionedDevices) ? profile.ProvisionedDevices : [],
@@ -141,6 +145,28 @@ function uniqueSigningTargets(profiles) {
   return new Map(profiles.map((profile) => [`${profile.teamId}\0${profile.bundleId}`, profile]));
 }
 
+function bootstrapSigningTarget(profiles, udid, now) {
+  const anchors = profiles.filter(
+    (profile) =>
+      !isWdaProfile(profile) &&
+      isProfileValidForDevice(profile, udid, now) &&
+      !profile.bundleId.includes("*"),
+  );
+  const companionAnchors = anchors.filter((profile) => profile.bundleId.endsWith(".BridgeBrowser"));
+  const anchor = companionAnchors.length === 1 ? companionAnchors[0] : anchors.length === 1 ? anchors[0] : null;
+  if (!anchor) return null;
+  if (
+    !/^[A-Z0-9]+$/.test(anchor.teamId) ||
+    !/^[A-Za-z0-9.-]+$/.test(anchor.bundleId) ||
+    (Array.isArray(anchor.teamIds) &&
+      (anchor.teamIds.length !== 1 || anchor.teamIds[0] !== anchor.teamId))
+  ) {
+    return null;
+  }
+  const bundleIdBase = `${anchor.bundleId}.WebDriverAgentRunner`;
+  return { teamId: anchor.teamId, bundleId: `${bundleIdBase}${WDA_SUFFIX}` };
+}
+
 export async function ensureFreshWdaProvisioningProfile({ udid, requestedProfileUuid }, options = {}) {
   const now = options.now?.() ?? Date.now();
   const loadProfiles = options.loadProfiles ?? (() => loadProvisioningProfiles({ env: options.env }));
@@ -198,6 +224,15 @@ export async function ensureFreshWdaProvisioningProfile({ udid, requestedProfile
     );
     const targets = uniqueSigningTargets(expiredCandidates);
     if (targets.size === 1) target = newest(expiredCandidates);
+  }
+
+  if (
+    !target &&
+    !requestedProfileUuid &&
+    !configuredTeam &&
+    !configuredBundleBase
+  ) {
+    target = bootstrapSigningTarget(profiles, udid, now);
   }
 
   if (!target) {
