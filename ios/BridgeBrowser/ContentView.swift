@@ -133,7 +133,11 @@ struct ContentView: View {
   }
 
   private func approvalView(_ pending: PendingApproval) -> some View {
-    ScrollView {
+    let pathPrefix =
+      pending.initialURL.bridgeSuggestedPathPrefixURL?.bridgePercentEncodedPath ?? "/"
+    let originLabel = pending.initialURL.host ?? "origin"
+
+    return ScrollView {
       VStack(alignment: .leading, spacing: 12) {
         Text("Remote session request").font(.headline)
           .accessibilityIdentifier("bridge.approval-heading")
@@ -160,11 +164,11 @@ struct ContentView: View {
           .buttonStyle(.bordered)
           .frame(maxWidth: .infinity)
           .accessibilityIdentifier("bridge.approve-exact-url")
-        Button("This path prefix") { model.approvePendingPermanently(.pathPrefix) }
+        Button("Path prefix: \(pathPrefix)") { model.approvePendingPermanently(.pathPrefix) }
           .buttonStyle(.bordered)
           .frame(maxWidth: .infinity)
           .accessibilityIdentifier("bridge.approve-path-prefix")
-        Button("This origin / domain") { model.approvePendingPermanently(.origin) }
+        Button("Origin: \(originLabel)") { model.approvePendingPermanently(.origin) }
           .buttonStyle(.bordered)
           .frame(maxWidth: .infinity)
           .accessibilityIdentifier("bridge.approve-origin")
