@@ -290,6 +290,22 @@ extension URL {
     return path.isEmpty ? "/" : path
   }
 
+  var bridgeSuggestedPathPrefixURL: URL? {
+    guard let canonical = bridgeCanonicalHTTPSURL,
+      var components = URLComponents(url: canonical, resolvingAgainstBaseURL: false)
+    else { return nil }
+
+    var path = components.percentEncodedPath
+    if !path.hasSuffix("/"), let lastSlash = path.lastIndex(of: "/") {
+      path = String(path[...lastSlash])
+    }
+    if path.isEmpty { path = "/" }
+    components.percentEncodedPath = path
+    components.query = nil
+    components.fragment = nil
+    return components.url
+  }
+
   var bridgeCanonicalHTTPSURL: URL? {
     guard var components = URLComponents(url: self, resolvingAgainstBaseURL: false),
       components.scheme?.lowercased() == "https",
