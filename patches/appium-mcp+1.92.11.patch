@@ -249,10 +249,10 @@ index bf09bdc..707f99e 100644
 +    !isRemoteServer && !hasExplicitDeviceTarget && selectedLocalDevice?.platform === 'ios'
 +      ? selectedLocalDevice
 +      : null;
-+
+
    const deviceType = selectedIOSDevice?.type || null;
    await validateIOSDeviceSelection(deviceType);
- 
+
 -  const givenCaps = {...configCaps, ...customCaps};
    const selectedDeviceUdid =
      !isRemoteServer && !givenCaps['appium:udid'] && selectedIOSDevice?.platform === 'ios'
@@ -260,7 +260,7 @@ index bf09bdc..707f99e 100644
 @@ -239,7 +243,7 @@ export async function buildIOSCapabilities(
      ...customCaps,
    };
- 
+
 -  if (selectedIOSDevice) {
 +  if (selectedLocalDevice) {
      // clear the selected device since we're now using it to create a session,
