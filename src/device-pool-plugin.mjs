@@ -34,13 +34,6 @@ function resultText(result) {
   return result?.content?.find((item) => item.type === "text")?.text ?? "";
 }
 
-function successContent(payload) {
-  return {
-    content: [{ type: "text", text: JSON.stringify(payload, null, 2) }],
-    structuredContent: payload,
-  };
-}
-
 function errorContent(error, code = "BRIDGE_OPERATION_ERROR", retryable = false) {
   const message = error instanceof Error ? error.message : String(error);
   return {
@@ -61,6 +54,8 @@ function parseCapabilities(value) {
 
 function parseSelectedUdid(result) {
   if (result?.isError) return null;
+  const structuredUdid = result?.structuredContent?.capabilities?.["appium:udid"];
+  if (typeof structuredUdid === "string" && structuredUdid) return structuredUdid;
   try {
     const selected = JSON.parse(resultText(result));
     const udid = selected?.capabilities?.["appium:udid"];
@@ -126,7 +121,7 @@ class ScopedDeviceLease {
 export class DevicePoolPlugin {
   constructor(options = {}) {
     this.name = "openai-local-ios-device-pool";
-    this.version = "0.2.0-beta.4";
+    this.version = "0.2.0-beta.3";
     this.runtimeRoot = options.runtimeRoot ?? path.join(defaultArtifactRoot(), "runtime");
     this.manifestPath = options.manifestPath ?? path.join(this.runtimeRoot, "device-pool.json");
     this.sharedLease = options.lease ?? new DeviceLease({ root: this.runtimeRoot });
@@ -287,8 +282,7 @@ export class DevicePoolPlugin {
       if (!args.operationId) return errorContent(new Error("operationId is required"), "INVALID_ARGUMENTS");
       const worker = this.workerForOperation(kind, args.operationId);
       if (!worker) return errorContent(new Error(`unknown operationId: ${args.operationId}`), "UNKNOWN_OPERATION");
-      const childArgs = { action: args.action, operationId: args.operationId };
-      return await worker.executeTool(kind, childArgs);
+      return await worker.executeTool(kind, { action: args.action, operationId: args.operationId });
     }
 
     if (kind === "prepare") {
@@ -356,7 +350,8 @@ export class DevicePoolPlugin {
     }
 
     if (ctx.toolName === "appium_session_management" && ctx.args.action === "delete") {
-      const results = await Promise.allSettled([...this.workers.values()].map((worker) => worker.afterCall(ctx, result)));
+      const workers = [...this.workers.values(), ...(this.legacyWorker ? [this.legacyWorker] : [])];
+      const results = await Promise.allSettled(workers.map((worker) => worker.afterCall(ctx, result)));
       const failures = results.filter((entry) => entry.status === "rejected").map((entry) => entry.reason);
       if (failures.length > 0) throw new AggregateError(failures, "one or more device workers failed delete cleanup");
     }
