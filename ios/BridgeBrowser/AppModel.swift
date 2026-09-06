@@ -32,7 +32,9 @@ final class AppModel: ObservableObject {
     let proxy = TrustedNavigationProxy(
       browser: browser,
       trustedRule: { [weak self] in self?.activeTrustedRule },
-      onBlocked: { [weak self] in self?.errorMessage = "Blocked navigation outside trusted target scope" }
+      onBlocked: { [weak self] in
+        self?.errorMessage = "Blocked navigation outside trusted target scope"
+      }
     )
     navigationProxy = proxy
     browser.webView.navigationDelegate = proxy
