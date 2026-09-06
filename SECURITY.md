@@ -91,7 +91,9 @@ The exact Appium MCP dependency brings a large mobile-automation and signing tre
 - disabled relaxed security and redacted capability logging;
 - loopback-only legacy WDA forwarding.
 
-As of 2026-08-30, `npm audit --omit=dev` reports 15 transitive advisories: 1 low, 1 moderate, and 13 high. The exact reviewed package set and review deadline are tracked in `security/audit-baseline.json`; CI fails when the set changes or the review expires.
+As of 2026-09-06, `npm audit --omit=dev` reports 17 transitive package advisories: 1 low, 4 moderate, 12 high, and 0 critical. The September 6 review added the newly surfaced moderate `@xmldom/xmldom` and `qs` advisory aggregates and recorded the reduced aggregate severity currently reported for `appium-mcp`. The exact reviewed package set and the September 30 review deadline are tracked in `security/audit-baseline.json`; CI fails whenever that live set changes or the review expires.
+
+The new `@xmldom/xmldom` advisory is in XML serialization and the new `qs` advisories are denial-of-service/query parsing paths. They remain transitive dependencies rather than new bridge features, and the bridge still exposes Appium only through local stdio rather than a public listener. This is a time-bounded review, not a claim that vulnerable dependencies are harmless; update the dependency tree when compatible upstream versions are available.
 
 Do not run `npm audit fix --force`: npm currently proposes an incompatible Appium MCP downgrade. A beta release must keep the advisory review current and must not add a critical advisory.
 
