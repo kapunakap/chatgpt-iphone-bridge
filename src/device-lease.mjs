@@ -35,6 +35,14 @@ function resourcesConflict(left, right) {
   return left === right;
 }
 
+function implicitResource(kind) {
+  if (kind === "cellular_browser") {
+    const mappedUdid = process.env.IPHONE_BRIDGE_CELLULAR_DEVICE_UDID?.trim();
+    if (mappedUdid) return `device:${mappedUdid}`;
+  }
+  return DEFAULT_RESOURCE;
+}
+
 export class DeviceLease {
   constructor(options = {}) {
     this.root = options.root ?? path.join(defaultArtifactRoot(), "runtime");
@@ -53,8 +61,8 @@ export class DeviceLease {
     return path.join(this.root, `device-${this.resourceKey(resource)}.lock`);
   }
 
-  async acquire(kind, resource = DEFAULT_RESOURCE) {
-    const normalizedResource = normalizeResource(resource);
+  async acquire(kind, resource) {
+    const normalizedResource = normalizeResource(resource ?? implicitResource(kind));
     const currentToken = this.tokensByResource.get(normalizedResource);
     if (currentToken) return currentToken;
 
@@ -205,4 +213,4 @@ export class DeviceLease {
   }
 }
 
-export { DEFAULT_RESOURCE, resourcesConflict };
+export { DEFAULT_RESOURCE, implicitResource, resourcesConflict };
