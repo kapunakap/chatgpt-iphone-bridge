@@ -287,7 +287,9 @@ struct CommandResult: Sendable {
 extension URL {
   var bridgeCanonicalHTTPSURL: URL? {
     guard var components = URLComponents(url: self, resolvingAgainstBaseURL: false),
-      components.scheme?.lowercased() == "https", components.user == nil, components.password == nil,
+      components.scheme?.lowercased() == "https",
+      components.user == nil,
+      components.password == nil,
       let host = components.host, !host.isEmpty
     else { return nil }
 
