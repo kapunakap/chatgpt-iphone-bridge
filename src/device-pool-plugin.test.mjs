@@ -38,6 +38,15 @@ async function settle(ms = 20) {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+async function waitFor(predicate, { timeoutMs = 2_000, intervalMs = 10 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (predicate()) return;
+    await settle(intervalMs);
+  }
+  assert.equal(predicate(), true, `condition did not become true within ${timeoutMs}ms`);
+}
+
 test("different devices run concurrently while each device keeps FIFO session order", async (t) => {
   const runtimeRoot = await fs.mkdtemp(path.join(os.tmpdir(), "iphone-bridge-device-pool-"));
   t.after(() => fs.rm(runtimeRoot, { recursive: true, force: true }));
@@ -106,13 +115,16 @@ test("different devices run concurrently while each device keeps FIFO session or
     capabilities: capabilities("device-b"),
   });
 
-  await settle();
+  await waitFor(() => state.starts.includes("device-a-1") && state.starts.includes("device-b-1"));
   assert.deepEqual(new Set(state.starts), new Set(["device-a-1", "device-b-1"]));
   assert.equal(state.starts.includes("device-a-2"), false);
 
   state.resolvers.get("device-b-1")();
   state.resolvers.get("device-a-1")();
-  await settle();
+  await waitFor(
+    () => state.sessions.some((session) => session.sessionId === "session-device-a-1")
+      && state.sessions.some((session) => session.sessionId === "session-device-b-1"),
+  );
 
   const firstAStatus = await plugin.executeTool("create", {
     action: "status",
@@ -135,11 +147,10 @@ test("different devices run concurrently while each device keeps FIFO session or
     { toolName: "appium_session_management", args: { action: "delete", sessionId: "session-device-a-1" } },
     { isError: false, content: [] },
   );
-  await settle();
-  assert.equal(state.starts.includes("device-a-2"), true);
+  await waitFor(() => state.starts.includes("device-a-2"));
 
   state.resolvers.get("device-a-2")();
-  await settle();
+  await waitFor(() => state.sessions.some((session) => session.sessionId === "session-device-a-2"));
   const secondAReady = await plugin.executeTool("create", {
     action: "status",
     operationId: secondA.structuredContent.operationId,
