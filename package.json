@@ -54,6 +54,7 @@
     "cellular:ios:install": "bash scripts/install-cellular-ios.sh",
     "fixture": "node scripts/serve-fixture.mjs",
     "smoke:physical": "node scripts/physical-smoke.mjs",
+    "smoke:physical:pool": "node scripts/pool-physical-smoke.mjs",
     "qa:bridge-browser:physical": "node scripts/bridge-browser-physical-qa.mjs",
     "prune": "bash scripts/prune-artifacts.sh",
     "status": "bash scripts/status.sh",
