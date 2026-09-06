@@ -67,6 +67,8 @@ DEVELOPMENT_TEAM=<apple-team-id> \
 bash scripts/prepare-ios-signing.sh
 ```
 
+The private preparation worker renews an expired device-bound `.xctrunner` development profile with Xcode automatic signing before it signs WDA. It uses the existing profile's team and bundle ID, requires the selected iPhone to be available to Xcode, and never returns Xcode account details in MCP errors.
+
 Device IDs, team IDs, profile UUIDs, signed WDA files, screenshots, and runtime keys must stay outside the repository.
 
 ## Connect
@@ -95,7 +97,7 @@ Create a ChatGPT developer-mode app named **Local iPhone**, choose **Tunnel**, s
 
 ## ChatGPT workflow
 
-1. Call `select_device` with `platform=ios` and `iosDeviceType=real`.
+1. Call `select_device` with `platform=ios` and `iosDeviceType=real`. When Xcode reports exactly one host-attached iPhone, the bridge prefers it over paired network ghosts; an explicit `deviceUdid` still wins.
 2. Call `appium_prepare_ios_real_device_async` with `action=start` and the selected UDID.
 3. Poll `action=status` with the returned `operationId`. Pick a recommended profile from the discovery result.
 4. Start preparation again with that profile UUID and poll with its `operationId` until `state=ready`. Selecting the same iPhone again preserves this shared ready preparation.

@@ -1,3 +1,5 @@
+import { listHostAttachedRealIphones } from "./ios-device-state.mjs";
+
 const PRIVILEGED_TOOLS = new Set([
   "appium_app_lifecycle",
   "appium_driver_settings",
@@ -21,9 +23,11 @@ function enabledPrivilegedTools() {
 }
 
 export class IosSessionSafetyPlugin {
-  constructor() {
+  constructor(options = {}) {
     this.name = "openai-local-iphone-policy";
     this.version = "0.2.0-beta.3";
+    this.listHostAttachedRealIphones = options.listHostAttachedRealIphones ?? listHostAttachedRealIphones;
+    this.preferredUdid = options.preferredUdid ?? process.env.IOS_DEVICE_UDID;
   }
 
   async beforeCall(ctx) {
@@ -41,6 +45,18 @@ export class IosSessionSafetyPlugin {
     if (ctx.toolName === "select_device") {
       if (ctx.args.platform !== "ios" || ctx.args.iosDeviceType !== "real") {
         return errorContent("this bridge only selects real iOS devices");
+      }
+      if (!ctx.args.deviceUdid) {
+        try {
+          const attached = await this.listHostAttachedRealIphones();
+          const preferred = this.preferredUdid
+            ? attached.find((device) => device.udid === this.preferredUdid)
+            : null;
+          const selected = preferred ?? (attached.length === 1 ? attached[0] : null);
+          if (selected) ctx.args.deviceUdid = selected.udid;
+        } catch {
+          // Fall back to Appium's normal picker when Xcode attachment metadata is unavailable.
+        }
       }
       return;
     }
