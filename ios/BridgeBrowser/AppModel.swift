@@ -1,6 +1,7 @@
 import Combine
 import Foundation
 import UIKit
+import WebKit
 
 @MainActor
 final class AppModel: ObservableObject {
@@ -25,8 +26,17 @@ final class AppModel: ObservableObject {
   private let trustedTargetStore = TrustedTargetStore()
   private var approvalContinuation: CheckedContinuation<ApprovalDecision, Never>?
   private var reconnectGraceTask: Task<Void, Never>?
+  private var navigationProxy: TrustedNavigationProxy?
 
   init() {
+    let proxy = TrustedNavigationProxy(
+      browser: browser,
+      trustedRule: { [weak self] in self?.activeTrustedRule },
+      onBlocked: { [weak self] in self?.errorMessage = "Blocked navigation outside trusted target scope" }
+    )
+    navigationProxy = proxy
+    browser.webView.navigationDelegate = proxy
+
     do {
       trustedTargets = try trustedTargetStore.load()
     } catch {
@@ -286,6 +296,11 @@ final class AppModel: ObservableObject {
       try requireSession(args)
       let action = try requiredString(args, "action")
       let url = args["url"]?.string.flatMap(URL.init(string:))
+      if action == "open", let url, let activeTrustedRule, !activeTrustedRule.matches(url) {
+        throw BridgeError(
+          code: "TRUST_SCOPE_NOT_APPROVED",
+          message: "URL is outside the persistent trusted target scope")
+      }
       return try await browser.navigate(action: action, url: url)
     case "element.find":
       try requireSession(args)
@@ -367,8 +382,13 @@ final class AppModel: ObservableObject {
     }
 
     let sessionId = UUID().uuidString.lowercased()
-    try browser.begin(initialURL: initialURL, allowedOrigins: origins, trustedRule: trustedRule)
     activeTrustedRule = trustedRule
+    do {
+      try browser.begin(initialURL: initialURL, allowedOrigins: origins)
+    } catch {
+      activeTrustedRule = nil
+      throw error
+    }
     activeSessionId = sessionId
     UIApplication.shared.isIdleTimerDisabled = true
     statusMessage = sessionStatusMessage
@@ -403,5 +423,65 @@ final class AppModel: ObservableObject {
     UIApplication.shared.isIdleTimerDisabled = false
     browser.stop()
     statusMessage = credentials == nil ? "Not paired" : "Secure channel ready"
+  }
+}
+
+@MainActor
+private final class TrustedNavigationProxy: NSObject, WKNavigationDelegate {
+  private let browser: BrowserController
+  private let trustedRule: () -> TrustedTargetRule?
+  private let onBlocked: () -> Void
+
+  init(
+    browser: BrowserController, trustedRule: @escaping () -> TrustedTargetRule?,
+    onBlocked: @escaping () -> Void
+  ) {
+    self.browser = browser
+    self.trustedRule = trustedRule
+    self.onBlocked = onBlocked
+  }
+
+  func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+    browser.webView(webView, didStartProvisionalNavigation: navigation)
+  }
+
+  func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+    browser.webView(webView, didFinish: navigation)
+  }
+
+  func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+    browser.webView(webView, didFail: navigation, withError: error)
+  }
+
+  func webView(
+    _ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!,
+    withError error: Error
+  ) {
+    browser.webView(webView, didFailProvisionalNavigation: navigation, withError: error)
+  }
+
+  func webView(
+    _ webView: WKWebView,
+    decidePolicyFor navigationAction: WKNavigationAction,
+    decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void
+  ) {
+    if navigationAction.targetFrame?.isMainFrame != false, let url = navigationAction.request.url,
+      let trustedRule = trustedRule(), url.scheme != "about", !trustedRule.matches(url)
+    {
+      onBlocked()
+      decisionHandler(.cancel)
+      return
+    }
+    browser.webView(
+      webView, decidePolicyFor: navigationAction, decisionHandler: decisionHandler)
+  }
+
+  func webView(
+    _ webView: WKWebView,
+    decidePolicyFor navigationResponse: WKNavigationResponse,
+    decisionHandler: @escaping @MainActor @Sendable (WKNavigationResponsePolicy) -> Void
+  ) {
+    browser.webView(
+      webView, decidePolicyFor: navigationResponse, decisionHandler: decisionHandler)
   }
 }
