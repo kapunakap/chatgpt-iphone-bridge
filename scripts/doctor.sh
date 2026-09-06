@@ -25,13 +25,13 @@ check direct_mcp_smoke node "$REPO_ROOT/scripts/appium-mcp-smoke.mjs"
 
 printf '\n== Physical device presence ==\n'
 if [[ "${IPHONE_BRIDGE_CELLULAR_ENABLED:-false}" == "true" ]]; then
-  printf 'connected_real_iphones=skipped_cellular_mode\n'
+  printf 'connected_real_ios_devices=skipped_cellular_mode\n'
 else
   if device_count="$(node "$REPO_ROOT/scripts/real-iphone-count.mjs" 2>/dev/null)"; then
-    printf 'connected_real_iphones=%s\n' "$device_count"
+    printf 'connected_real_ios_devices=%s\n' "$device_count"
     if [[ ! "$device_count" =~ ^[0-9]+$ || "$device_count" -lt 1 ]]; then failures=$((failures + 1)); fi
   else
-    printf 'connected_real_iphones=unknown\n' >&2
+    printf 'connected_real_ios_devices=unknown\n' >&2
     failures=$((failures + 1))
   fi
 fi
