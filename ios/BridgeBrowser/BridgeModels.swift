@@ -235,8 +235,8 @@ struct TrustedTargetRule: Codable, Equatable, Identifiable, Sendable {
       guard let ruleURL = URL(string: value), canonical.bridgeOrigin == ruleURL.bridgeOrigin else {
         return false
       }
-      let rulePath = ruleURL.percentEncodedPath.isEmpty ? "/" : ruleURL.percentEncodedPath
-      let candidatePath = canonical.percentEncodedPath.isEmpty ? "/" : canonical.percentEncodedPath
+      let rulePath = ruleURL.bridgePercentEncodedPath
+      let candidatePath = canonical.bridgePercentEncodedPath
       if rulePath == "/" { return true }
       let boundary = rulePath.hasSuffix("/") ? String(rulePath.dropLast()) : rulePath
       return candidatePath == boundary || candidatePath.hasPrefix(boundary + "/")
@@ -247,7 +247,7 @@ struct TrustedTargetRule: Codable, Equatable, Identifiable, Sendable {
     switch kind {
     case .origin: return 3_000_000
     case .pathPrefix:
-      let pathLength = URL(string: value)?.percentEncodedPath.count ?? value.count
+      let pathLength = URL(string: value).map { $0.bridgePercentEncodedPath.count } ?? value.count
       return 2_000_000 - min(pathLength, 999_999)
     case .exactURL: return 1_000_000
     }
@@ -285,6 +285,11 @@ struct CommandResult: Sendable {
 }
 
 extension URL {
+  var bridgePercentEncodedPath: String {
+    let path = URLComponents(url: self, resolvingAgainstBaseURL: false)?.percentEncodedPath ?? ""
+    return path.isEmpty ? "/" : path
+  }
+
   var bridgeCanonicalHTTPSURL: URL? {
     guard var components = URLComponents(url: self, resolvingAgainstBaseURL: false),
       components.scheme?.lowercased() == "https",
