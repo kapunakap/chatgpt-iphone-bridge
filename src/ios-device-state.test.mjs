@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { parseAvailableRealIphones, parseDeviceLockState } from "./ios-device-state.mjs";
+import {
+  parseAvailableRealIosDevices,
+  parseAvailableRealIphones,
+  parseDeviceLockState,
+} from "./ios-device-state.mjs";
 
 test("device discovery uses model and state instead of the user-defined name", () => {
   const output = `Name                Hostname                          Identifier   State                Model
@@ -10,9 +14,12 @@ The Onin            The-Onin.coredevice.local         private      available (pa
 Onin's airpad       airpad.coredevice.local           private      available (paired)   iPad Air (5th generation) (iPad13,16)
 Old phone           old.coredevice.local              private      unavailable          iPhone 12 (iPhone13,2)
 `;
-  assert.deepEqual(parseAvailableRealIphones(output), [
+  const expected = [
     { name: "The Onin", state: "available (paired)", model: "iPhone 14 Pro (iPhone15,2)" },
-  ]);
+    { name: "Onin's airpad", state: "available (paired)", model: "iPad Air (5th generation) (iPad13,16)" },
+  ];
+  assert.deepEqual(parseAvailableRealIosDevices(output), expected);
+  assert.deepEqual(parseAvailableRealIphones(output), expected);
 });
 
 test("lock-state parsing fails closed when the field is absent", () => {
