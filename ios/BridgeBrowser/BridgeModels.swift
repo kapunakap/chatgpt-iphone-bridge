@@ -165,17 +165,147 @@ struct PendingApproval: Identifiable, Equatable {
   let allowedOrigins: [String]
 }
 
+enum TrustedTargetKind: String, Codable, CaseIterable, Hashable, Identifiable, Sendable {
+  case exactURL = "exact_url"
+  case pathPrefix = "path_prefix"
+  case origin
+
+  var id: String { rawValue }
+
+  var title: String {
+    switch self {
+    case .exactURL: return "Exact URL"
+    case .pathPrefix: return "Path prefix"
+    case .origin: return "Origin / domain"
+    }
+  }
+
+  var explanation: String {
+    switch self {
+    case .exactURL: return "Only this exact HTTPS URL"
+    case .pathPrefix: return "This path and descendants on the same origin"
+    case .origin: return "All paths on this exact HTTPS origin"
+    }
+  }
+}
+
+struct TrustedTargetRule: Codable, Equatable, Identifiable, Sendable {
+  let id: UUID
+  let kind: TrustedTargetKind
+  let value: String
+  let createdAt: Date
+
+  static func make(
+    kind: TrustedTargetKind, url: URL, id: UUID = UUID(), createdAt: Date = Date()
+  ) throws -> TrustedTargetRule {
+    guard let canonical = url.bridgeCanonicalHTTPSURL, let origin = canonical.bridgeOrigin else {
+      throw BridgeError(
+        code: "INVALID_TRUSTED_TARGET",
+        message: "Trusted targets must use HTTPS without embedded credentials")
+    }
+
+    let value: String
+    switch kind {
+    case .origin:
+      value = origin
+    case .exactURL:
+      value = canonical.absoluteString
+    case .pathPrefix:
+      var components = URLComponents(url: canonical, resolvingAgainstBaseURL: false)
+      components?.query = nil
+      components?.fragment = nil
+      guard let scopedURL = components?.url else {
+        throw BridgeError(code: "INVALID_TRUSTED_TARGET", message: "Trusted target is invalid")
+      }
+      value = scopedURL.absoluteString
+    }
+
+    return TrustedTargetRule(id: id, kind: kind, value: value, createdAt: createdAt)
+  }
+
+  func matches(_ url: URL) -> Bool {
+    guard let canonical = url.bridgeCanonicalHTTPSURL else { return false }
+
+    switch kind {
+    case .origin:
+      return canonical.bridgeOrigin == value
+    case .exactURL:
+      return canonical.absoluteString == value
+    case .pathPrefix:
+      guard let ruleURL = URL(string: value), canonical.bridgeOrigin == ruleURL.bridgeOrigin else {
+        return false
+      }
+      let rulePath = ruleURL.percentEncodedPath.isEmpty ? "/" : ruleURL.percentEncodedPath
+      let candidatePath = canonical.percentEncodedPath.isEmpty ? "/" : canonical.percentEncodedPath
+      if rulePath == "/" { return true }
+      let boundary = rulePath.hasSuffix("/") ? String(rulePath.dropLast()) : rulePath
+      return candidatePath == boundary || candidatePath.hasPrefix(boundary + "/")
+    }
+  }
+
+  var scopeScore: Int {
+    switch kind {
+    case .origin: return 3_000_000
+    case .pathPrefix:
+      let pathLength = URL(string: value)?.percentEncodedPath.count ?? value.count
+      return 2_000_000 - min(pathLength, 999_999)
+    case .exactURL: return 1_000_000
+    }
+  }
+}
+
+struct TrustedTargetStore {
+  private let defaults: UserDefaults
+  private let key: String
+
+  init(defaults: UserDefaults = .standard, key: String = "bridge.trusted-targets.v1") {
+    self.defaults = defaults
+    self.key = key
+  }
+
+  func load() throws -> [TrustedTargetRule] {
+    guard let data = defaults.data(forKey: key) else { return [] }
+    return try JSONDecoder().decode([TrustedTargetRule].self, from: data)
+  }
+
+  func save(_ rules: [TrustedTargetRule]) throws {
+    defaults.set(try JSONEncoder().encode(rules), forKey: key)
+  }
+}
+
+func bridgeURLIsAllowed(
+  _ url: URL, allowedOrigins: Set<String>, trustedRule: TrustedTargetRule?
+) -> Bool {
+  guard let origin = url.bridgeOrigin, allowedOrigins.contains(origin) else { return false }
+  return trustedRule?.matches(url) ?? true
+}
+
 struct CommandResult: Sendable {
   let value: JSONValue
 }
 
 extension URL {
+  var bridgeCanonicalHTTPSURL: URL? {
+    guard var components = URLComponents(url: self, resolvingAgainstBaseURL: false),
+      components.scheme?.lowercased() == "https", components.user == nil, components.password == nil,
+      let host = components.host, !host.isEmpty
+    else { return nil }
+
+    components.scheme = "https"
+    components.host = host.lowercased()
+    if components.port == 443 { components.port = nil }
+    if components.percentEncodedPath.isEmpty { components.percentEncodedPath = "/" }
+    components.fragment = nil
+    return components.url
+  }
+
   var bridgeOrigin: String? {
-    guard scheme == "https", user == nil, password == nil, let host else { return nil }
-    var components = URLComponents()
-    components.scheme = scheme
-    components.host = host
-    if port != 443 { components.port = port }
+    guard let canonical = bridgeCanonicalHTTPSURL,
+      var components = URLComponents(url: canonical, resolvingAgainstBaseURL: false)
+    else { return nil }
+    components.path = ""
+    components.query = nil
+    components.fragment = nil
     return components.string
   }
 }
