@@ -69,6 +69,14 @@ enum BridgeCoreSmoke {
     try require(
       URL(string: "https://user:pass@example.test")?.bridgeOrigin == nil,
       "Credentialed URL was not rejected")
+    try require(
+      URL(string: "https://example.test/qa/run-123?mode=1")?
+        .bridgeSuggestedPathPrefixURL?.absoluteString == "https://example.test/qa/",
+      "Approval path prefix should suggest the current page's parent path")
+    try require(
+      URL(string: "https://example.test/qa/")?.bridgeSuggestedPathPrefixURL?.absoluteString
+        == "https://example.test/qa/",
+      "Directory URL should remain its own approval path prefix")
 
     let exact = try TrustedTargetRule.make(
       kind: .exactURL, url: URL(string: "https://EXAMPLE.test:443/qa/run?mode=1#fragment")!)
