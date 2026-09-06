@@ -12,7 +12,7 @@ test("policy plugin adds no tools and does not collide", () => {
 });
 
 test("safe mode only allows real iOS device selection", async () => {
-  const plugin = new IosSessionSafetyPlugin();
+  const plugin = new IosSessionSafetyPlugin({ listHostAttachedRealIphones: async () => [] });
   assert.equal(
     await plugin.beforeCall({ toolName: "select_device", args: { platform: "ios", iosDeviceType: "real" } }),
     undefined,
@@ -23,6 +23,26 @@ test("safe mode only allows real iOS device selection", async () => {
   ]) {
     assert.equal((await plugin.beforeCall({ toolName: "select_device", args })).isError, true);
   }
+});
+
+test("safe selection prefers one host-attached iPhone over network discoveries", async () => {
+  const plugin = new IosSessionSafetyPlugin({
+    listHostAttachedRealIphones: async () => [{ udid: "host-attached", name: "Phone" }],
+  });
+  const args = { platform: "ios", iosDeviceType: "real" };
+  assert.equal(await plugin.beforeCall({ toolName: "select_device", args }), undefined);
+  assert.equal(args.deviceUdid, "host-attached");
+});
+
+test("safe selection preserves an explicit UDID and does not query attachment metadata", async () => {
+  const plugin = new IosSessionSafetyPlugin({
+    listHostAttachedRealIphones: async () => {
+      throw new Error("must not run");
+    },
+  });
+  const args = { platform: "ios", iosDeviceType: "real", deviceUdid: "explicit-phone" };
+  assert.equal(await plugin.beforeCall({ toolName: "select_device", args }), undefined);
+  assert.equal(args.deviceUdid, "explicit-phone");
 });
 
 test("blocking, remote, and attached session paths fail closed", async () => {

@@ -29,6 +29,56 @@ export function parseDeviceLockState(output) {
   return { locked: match[1].toLowerCase() === "true" };
 }
 
+function nestedValues(value, wantedKeys, found = []) {
+  if (Array.isArray(value)) {
+    for (const item of value) nestedValues(item, wantedKeys, found);
+    return found;
+  }
+  if (!value || typeof value !== "object") return found;
+  for (const [key, child] of Object.entries(value)) {
+    const normalized = key.replace(/[^a-z0-9]/gi, "").toLowerCase();
+    if (wantedKeys.has(normalized)) found.push(child);
+    nestedValues(child, wantedKeys, found);
+  }
+  return found;
+}
+
+export function parseHostAttachedRealIphones(output) {
+  const devices = JSON.parse(String(output));
+  if (!Array.isArray(devices)) throw new DeviceStateError("DEVICE_STATE_UNAVAILABLE", "xcdevice returned invalid JSON");
+  const unique = new Map();
+  for (const device of devices) {
+    const identifier = device?.identifier;
+    const platform = String(device?.platform ?? "").toLowerCase();
+    const model = String(device?.modelCode ?? device?.modelName ?? device?.name ?? "");
+    const interfaces = nestedValues(device, new Set(["interface", "interfacetype", "transporttype", "connectiontype"]))
+      .map((value) => String(value).toLowerCase());
+    const hostAttached = nestedValues(device, new Set(["hostattached"])).includes(true);
+    const trustedHostAttached = nestedValues(device, new Set(["trustedhostattached"])).includes(true);
+    const usbAttached = interfaces.some((value) => value === "usb" || value === "wired");
+    if (
+      typeof identifier === "string" &&
+      identifier &&
+      device.simulator !== true &&
+      device.available !== false &&
+      platform.includes("iphoneos") &&
+      /^iPhone/i.test(model) &&
+      (usbAttached || (hostAttached && trustedHostAttached))
+    ) {
+      unique.set(identifier, { udid: identifier, name: device.name ?? model });
+    }
+  }
+  return [...unique.values()];
+}
+
+export async function listHostAttachedRealIphones(options = {}) {
+  const run = options.execFile ?? execFile;
+  const { stdout } = await run("xcrun", ["xcdevice", "list", "--timeout=5"], {
+    timeout: options.timeoutMs ?? 10_000,
+  });
+  return parseHostAttachedRealIphones(stdout);
+}
+
 export async function listAvailableRealIphones(options = {}) {
   const run = options.execFile ?? execFile;
   const { stdout } = await run("xcrun", ["devicectl", "list", "devices"], { timeout: options.timeoutMs ?? 15_000 });

@@ -8,9 +8,11 @@ export async function runWorkerTool(name, args, options = {}) {
   const workerEnv = { APPIUM_BRIDGE_WORKER: "1" };
   for (const key of [
     "APPIUM_BRIDGE_ARTIFACT_ROOT",
+    "DEVELOPMENT_TEAM",
     "DEVELOPER_DIR",
     "IOS_PROVISIONING_PROFILE_DIR",
     "TMPDIR",
+    "WDA_BUNDLE_ID_BASE",
   ]) {
     if (process.env[key]) workerEnv[key] = process.env[key];
   }
