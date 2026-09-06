@@ -51,7 +51,7 @@ test("mapped cellular browser excludes only its matching USB device", async (t) 
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "iphone-bridge-cellular-map-"));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   const previous = process.env.IPHONE_BRIDGE_CELLULAR_DEVICE_UDID;
-  process.env.IPHONE_BRIDGE_CELLULAR_DEVICE_UDID = "device:a";
+  process.env.IPHONE_BRIDGE_CELLULAR_DEVICE_UDID = "a";
   t.after(() => {
     if (previous == null) delete process.env.IPHONE_BRIDGE_CELLULAR_DEVICE_UDID;
     else process.env.IPHONE_BRIDGE_CELLULAR_DEVICE_UDID = previous;
@@ -66,7 +66,7 @@ test("mapped cellular browser excludes only its matching USB device", async (t) 
   });
   const operation = await plugin.startSession({
     initialUrl: "https://example.test/",
-    allowedOrigins: ["https://example.test"],
+    allowedOrigins: ["https://example.test"]
   });
   assert.equal(operation.state, "awaiting_device");
   await plugin.closeSession("closed", { operationId: operation.operationId });
