@@ -136,8 +136,8 @@ enum BridgeCoreSmoke {
     defer { defaults.removePersistentDomain(forName: suiteName) }
     let store = TrustedTargetStore(defaults: defaults, key: "trusted-targets")
     try store.save([exact, path, origin])
-    try require(
-      try store.load() == [exact, path, origin], "Trusted target rules did not persist and reload")
+    let loadedRules = try store.load()
+    try require(loadedRules == [exact, path, origin], "Trusted target rules did not persist and reload")
 
     let now = BridgeCrypto.nowMs()
     let swiftPayload = SecurePayload(
