@@ -1,18 +1,19 @@
 {
-  "reviewedAt": "2026-08-30",
+  "reviewedAt": "2026-09-06",
   "reviewBy": "2026-09-30",
   "counts": {
     "low": 1,
-    "moderate": 1,
-    "high": 13,
+    "moderate": 4,
+    "high": 12,
     "critical": 0,
-    "total": 15
+    "total": 17
   },
   "packages": {
     "@puppeteer/browsers": "high",
     "@wdio/config": "high",
     "@wdio/utils": "high",
-    "appium-mcp": "high",
+    "@xmldom/xmldom": "moderate",
+    "appium-mcp": "moderate",
     "applesign": "high",
     "deepmerge-ts": "high",
     "diff": "low",
@@ -21,6 +22,7 @@
     "minimatch": "high",
     "mocha": "high",
     "nanoid": "high",
+    "qs": "moderate",
     "serialize-javascript": "high",
     "uuid": "moderate",
     "webdriver": "high"
