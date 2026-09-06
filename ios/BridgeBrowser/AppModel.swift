@@ -4,9 +4,17 @@ import UIKit
 
 @MainActor
 final class AppModel: ObservableObject {
+  private enum ApprovalDecision {
+    case reject
+    case approveOnce
+    case trust(TrustedTargetRule)
+  }
+
   @Published private(set) var credentials: PairingCredentials?
   @Published private(set) var pendingApproval: PendingApproval?
   @Published private(set) var activeSessionId: String?
+  @Published private(set) var activeTrustedRule: TrustedTargetRule?
+  @Published private(set) var trustedTargets: [TrustedTargetRule] = []
   @Published var pairingText = ""
   @Published private(set) var statusMessage = "Not paired"
   @Published private(set) var errorMessage: String?
@@ -14,25 +22,33 @@ final class AppModel: ObservableObject {
   let relay = RelayClient()
   let browser = BrowserController()
 
-  private var approvalContinuation: CheckedContinuation<Bool, Never>?
+  private let trustedTargetStore = TrustedTargetStore()
+  private var approvalContinuation: CheckedContinuation<ApprovalDecision, Never>?
   private var reconnectGraceTask: Task<Void, Never>?
 
   init() {
+    do {
+      trustedTargets = try trustedTargetStore.load()
+    } catch {
+      errorMessage = "Could not load trusted targets: \(error.localizedDescription)"
+    }
+
     do {
       credentials = try PairingStore.load()
       statusMessage = credentials == nil ? "Not paired" : "Paired — open connection"
     } catch {
       errorMessage = error.localizedDescription
     }
+
     relay.onSecureReady = { [weak self] in
-      self?.reconnectGraceTask?.cancel()
-      self?.reconnectGraceTask = nil
-      self?.statusMessage =
-        self?.activeSessionId == nil ? "Secure channel ready" : "Cellular session active"
+      guard let self else { return }
+      self.reconnectGraceTask?.cancel()
+      self.reconnectGraceTask = nil
+      self.statusMessage = self.sessionStatusMessage
     }
     relay.onDisconnected = { [weak self] in
       guard let self else { return }
-      if self.pendingApproval != nil { self.resolveApproval(false) }
+      if self.pendingApproval != nil { self.resolveApproval(.reject) }
       if let sessionId = self.activeSessionId {
         self.reconnectGraceTask?.cancel()
         self.reconnectGraceTask = Task { @MainActor [weak self] in
@@ -56,10 +72,7 @@ final class AppModel: ObservableObject {
       }
       return try await self.handle(command: command, args: args)
     }
-    statusMessage =
-      relay.secureReady
-      ? (activeSessionId == nil ? "Secure channel ready" : "Cellular session active")
-      : "Connecting…"
+    statusMessage = relay.secureReady ? sessionStatusMessage : "Connecting…"
   }
 
   func reconnect() {
@@ -69,7 +82,7 @@ final class AppModel: ObservableObject {
   }
 
   func leaveForeground() async {
-    resolveApproval(false)
+    resolveApproval(.reject)
     if let sessionId = activeSessionId {
       await relay.sendEvent(
         name: "session.closed",
@@ -160,9 +173,41 @@ final class AppModel: ObservableObject {
     }
   }
 
-  func approvePending() { resolveApproval(true) }
-  func rejectPending() { resolveApproval(false) }
+  func approvePending() { resolveApproval(.approveOnce) }
+
+  func approvePendingPermanently(_ kind: TrustedTargetKind) {
+    guard let pendingApproval else { return }
+    do {
+      let rule = try persistTrustedTarget(kind: kind, url: pendingApproval.initialURL)
+      resolveApproval(.trust(rule))
+    } catch {
+      errorMessage = (error as? BridgeError)?.message ?? error.localizedDescription
+    }
+  }
+
+  func rejectPending() { resolveApproval(.reject) }
   func reportError(_ message: String) { errorMessage = message }
+
+  @discardableResult
+  func addTrustedTarget(urlText: String, kind: TrustedTargetKind) throws -> TrustedTargetRule {
+    let trimmed = urlText.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard let url = URL(string: trimmed), !trimmed.isEmpty else {
+      throw BridgeError(code: "INVALID_TRUSTED_TARGET", message: "Enter a valid HTTPS URL")
+    }
+    return try persistTrustedTarget(kind: kind, url: url)
+  }
+
+  func removeTrustedTarget(_ rule: TrustedTargetRule) {
+    let updated = trustedTargets.filter { $0.id != rule.id }
+    guard updated.count != trustedTargets.count else { return }
+    do {
+      try trustedTargetStore.save(updated)
+      trustedTargets = updated
+      statusMessage = "Trusted target removed"
+    } catch {
+      errorMessage = "Could not remove trusted target: \(error.localizedDescription)"
+    }
+  }
 
   func stopActiveSession() async {
     guard let sessionId = activeSessionId else { return }
@@ -187,11 +232,33 @@ final class AppModel: ObservableObject {
     }
   }
 
-  private func resolveApproval(_ approved: Bool) {
+  private var sessionStatusMessage: String {
+    guard activeSessionId != nil else { return "Secure channel ready" }
+    return activeTrustedRule == nil ? "Cellular session active" : "Trusted session active"
+  }
+
+  private func resolveApproval(_ decision: ApprovalDecision) {
     pendingApproval = nil
     let continuation = approvalContinuation
     approvalContinuation = nil
-    continuation?.resume(returning: approved)
+    continuation?.resume(returning: decision)
+  }
+
+  private func persistTrustedTarget(kind: TrustedTargetKind, url: URL) throws -> TrustedTargetRule {
+    let candidate = try TrustedTargetRule.make(kind: kind, url: url)
+    if let existing = trustedTargets.first(where: {
+      $0.kind == candidate.kind && $0.value == candidate.value
+    }) {
+      return existing
+    }
+    let updated = trustedTargets + [candidate]
+    try trustedTargetStore.save(updated)
+    trustedTargets = updated
+    return candidate
+  }
+
+  private func matchingTrustedTarget(for url: URL) -> TrustedTargetRule? {
+    trustedTargets.filter { $0.matches(url) }.max { $0.scopeScore < $1.scopeScore }
   }
 
   private func handle(command: String, args: [String: JSONValue]) async throws -> JSONValue {
@@ -203,7 +270,7 @@ final class AppModel: ObservableObject {
         throw BridgeError(
           code: "NO_PENDING_APPROVAL", message: "No matching session approval is pending")
       }
-      resolveApproval(false)
+      resolveApproval(.reject)
       return .object(["state": .string("cancelled")])
     case "session.resume":
       let sessionId = try requiredString(args, "sessionId")
@@ -276,24 +343,35 @@ final class AppModel: ObservableObject {
         code: "INVALID_ORIGINS",
         message: "Approved origins are duplicated, missing, or do not include the initial origin")
     }
-    pendingApproval = PendingApproval(
-      id: operationId, initialURL: initialURL, allowedOrigins: origins)
-    statusMessage = "Session approval required"
-    await relay.sendEvent(
-      name: "session.approval_pending",
-      data: .object(["operationId": .string(operationId)]))
-    let approved = await withCheckedContinuation { continuation in
-      approvalContinuation = continuation
+
+    var trustedRule = matchingTrustedTarget(for: initialURL)
+    if trustedRule == nil {
+      pendingApproval = PendingApproval(
+        id: operationId, initialURL: initialURL, allowedOrigins: origins)
+      statusMessage = "Session approval required"
+      await relay.sendEvent(
+        name: "session.approval_pending",
+        data: .object(["operationId": .string(operationId)]))
+      let decision = await withCheckedContinuation { continuation in
+        approvalContinuation = continuation
+      }
+      switch decision {
+      case .reject:
+        statusMessage = "Session rejected"
+        return .object(["state": .string("rejected")])
+      case .approveOnce:
+        break
+      case .trust(let rule):
+        trustedRule = rule
+      }
     }
-    guard approved else {
-      statusMessage = "Session rejected"
-      return .object(["state": .string("rejected")])
-    }
+
     let sessionId = UUID().uuidString.lowercased()
-    try browser.begin(initialURL: initialURL, allowedOrigins: origins)
+    try browser.begin(initialURL: initialURL, allowedOrigins: origins, trustedRule: trustedRule)
+    activeTrustedRule = trustedRule
     activeSessionId = sessionId
     UIApplication.shared.isIdleTimerDisabled = true
-    statusMessage = "Cellular session active"
+    statusMessage = sessionStatusMessage
     return .object([
       "state": .string("ready"),
       "sessionId": .string(sessionId),
@@ -319,7 +397,8 @@ final class AppModel: ObservableObject {
   private func closeLocalSession() {
     reconnectGraceTask?.cancel()
     reconnectGraceTask = nil
-    resolveApproval(false)
+    resolveApproval(.reject)
+    activeTrustedRule = nil
     activeSessionId = nil
     UIApplication.shared.isIdleTimerDisabled = false
     browser.stop()
