@@ -63,15 +63,17 @@ export class DeviceLease {
 
   async acquire(kind, resource) {
     const normalizedResource = normalizeResource(resource ?? implicitResource(kind));
-    const currentToken = this.tokensByResource.get(normalizedResource);
-    if (currentToken) return currentToken;
+    if (this.tokensByResource.has(normalizedResource)) {
+      throw new Error(`device operation ${kind} is already active for resource ${normalizedResource}`);
+    }
 
     await fs.mkdir(this.root, { recursive: true, mode: 0o700 });
     await fs.chmod(this.root, 0o700);
 
     return await this.withArbitration(async () => {
-      const repeatedToken = this.tokensByResource.get(normalizedResource);
-      if (repeatedToken) return repeatedToken;
+      if (this.tokensByResource.has(normalizedResource)) {
+        throw new Error(`device operation ${kind} is already active for resource ${normalizedResource}`);
+      }
 
       const owners = await this.activeOwnersLocked();
       const conflicting = owners.find((entry) => resourcesConflict(normalizedResource, entry.resource));
