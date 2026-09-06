@@ -190,7 +190,11 @@ final class AppModel: ObservableObject {
   func approvePendingPermanently(_ kind: TrustedTargetKind) {
     guard let pendingApproval else { return }
     do {
-      let rule = try persistTrustedTarget(kind: kind, url: pendingApproval.initialURL)
+      let targetURL =
+        kind == .pathPrefix
+        ? pendingApproval.initialURL.bridgeSuggestedPathPrefixURL ?? pendingApproval.initialURL
+        : pendingApproval.initialURL
+      let rule = try persistTrustedTarget(kind: kind, url: targetURL)
       resolveApproval(.trust(rule))
     } catch {
       errorMessage = (error as? BridgeError)?.message ?? error.localizedDescription
