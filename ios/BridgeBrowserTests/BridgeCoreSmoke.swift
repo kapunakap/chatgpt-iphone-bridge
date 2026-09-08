@@ -62,10 +62,92 @@ enum BridgeCoreSmoke {
       URL(string: "https://example.test:8443/path")?.bridgeOrigin == "https://example.test:8443",
       "HTTPS origin normalization failed")
     try require(
+      URL(string: "https://EXAMPLE.test:443/path")?.bridgeOrigin == "https://example.test",
+      "Default HTTPS port or host normalization failed")
+    try require(
       URL(string: "http://example.test")?.bridgeOrigin == nil, "HTTP origin was not rejected")
     try require(
       URL(string: "https://user:pass@example.test")?.bridgeOrigin == nil,
       "Credentialed URL was not rejected")
+    try require(
+      URL(string: "https://example.test/qa/run-123?mode=1")?
+        .bridgeSuggestedPathPrefixURL?.absoluteString == "https://example.test/qa/",
+      "Approval path prefix should suggest the current page's parent path")
+    try require(
+      URL(string: "https://example.test/qa/")?.bridgeSuggestedPathPrefixURL?.absoluteString
+        == "https://example.test/qa/",
+      "Directory URL should remain its own approval path prefix")
+
+    let exact = try TrustedTargetRule.make(
+      kind: .exactURL, url: URL(string: "https://EXAMPLE.test:443/qa/run?mode=1#fragment")!)
+    try require(
+      exact.value == "https://example.test/qa/run?mode=1", "Exact URL normalization failed")
+    try require(
+      exact.matches(URL(string: "https://example.test/qa/run?mode=1#other")!),
+      "Exact URL should ignore fragments")
+    try require(
+      !exact.matches(URL(string: "https://example.test/qa/run?mode=2")!),
+      "Exact URL unexpectedly matched a different query")
+    try require(
+      !exact.matches(URL(string: "https://sub.example.test/qa/run?mode=1")!),
+      "Exact URL unexpectedly trusted a subdomain")
+
+    let path = try TrustedTargetRule.make(
+      kind: .pathPrefix, url: URL(string: "https://example.test/foo/?preview=1")!)
+    try require(path.value == "https://example.test/foo/", "Path rule should drop query data")
+    try require(
+      path.matches(URL(string: "https://example.test/foo")!),
+      "Path rule should match its boundary root")
+    try require(
+      path.matches(URL(string: "https://example.test/foo/bar?x=1")!),
+      "Path rule should match descendants")
+    try require(
+      !path.matches(URL(string: "https://example.test/foobar")!),
+      "Path rule crossed a path boundary")
+    try require(
+      !path.matches(URL(string: "https://other.test/foo/bar")!),
+      "Path rule unexpectedly matched another origin")
+
+    let origin = try TrustedTargetRule.make(
+      kind: .origin, url: URL(string: "https://example.test/anything")!)
+    try require(
+      origin.matches(URL(string: "https://example.test/other/path")!),
+      "Origin rule did not match another path")
+    try require(
+      !origin.matches(URL(string: "https://sub.example.test/other/path")!),
+      "Origin rule unexpectedly trusted a subdomain")
+    try require(
+      !origin.matches(URL(string: "http://example.test/other/path")!),
+      "Origin rule unexpectedly trusted HTTP")
+
+    let requestedOrigin: Set<String> = ["https://example.test"]
+    try require(
+      bridgeURLIsAllowed(
+        URL(string: "https://example.test/foo/child")!, allowedOrigins: requestedOrigin,
+        trustedRule: path),
+      "Requested scope and trusted path should intersect")
+    try require(
+      !bridgeURLIsAllowed(
+        URL(string: "https://example.test/outside")!, allowedOrigins: requestedOrigin,
+        trustedRule: path),
+      "Trusted path unexpectedly widened to the requested origin")
+    try require(
+      !bridgeURLIsAllowed(
+        URL(string: "https://other.test/foo")!, allowedOrigins: requestedOrigin,
+        trustedRule: nil),
+      "Manual approval unexpectedly widened requested allowedOrigins")
+
+    let suiteName = "BridgeCoreSmoke.TrustedTargets.\(UUID().uuidString)"
+    guard let defaults = UserDefaults(suiteName: suiteName) else {
+      throw BridgeError(code: "SMOKE_FAILED", message: "Could not create isolated UserDefaults")
+    }
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let store = TrustedTargetStore(defaults: defaults, key: "trusted-targets")
+    try store.save([exact, path, origin])
+    let loadedRules = try store.load()
+    try require(
+      loadedRules == [exact, path, origin],
+      "Trusted target rules did not persist and reload")
 
     let now = BridgeCrypto.nowMs()
     let swiftPayload = SecurePayload(
