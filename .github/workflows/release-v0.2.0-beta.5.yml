@@ -1,0 +1,100 @@
+name: Release v0.2.0-beta.5
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/release-v0.2.0-beta.5.yml
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out release trigger
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Verify exact release base
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD^)" = "676223c8a2a7d7e25177e4d9f63c921f0c626155"
+          git fetch origin main --no-tags
+          test "$(git rev-parse origin/main)" = "$GITHUB_SHA"
+          test "$(node -p "require('./package.json').version")" = "0.2.0-beta.4"
+          if git ls-remote --exit-code --tags origin refs/tags/v0.2.0-beta.5 >/dev/null 2>&1; then
+            echo "v0.2.0-beta.5 already exists" >&2
+            exit 1
+          fi
+
+      - name: Set Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Build release commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm version 0.2.0-beta.5 --no-git-tag-version
+          rm .github/workflows/release-v0.2.0-beta.5.yml
+          test "$(node -p "require('./package.json').version")" = "0.2.0-beta.5"
+          test "$(node -p "require('./package-lock.json').version")" = "0.2.0-beta.5"
+          test "$(node -p "require('./package-lock.json').packages[''].version")" = "0.2.0-beta.5"
+          git status --short
+
+      - name: Commit, tag, and publish prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json package-lock.json .github/workflows/release-v0.2.0-beta.5.yml
+          git commit -m "Release v0.2.0-beta.5"
+          RELEASE_SHA="$(git rev-parse HEAD)"
+          git push origin HEAD:main
+          git tag -a v0.2.0-beta.5 -m "v0.2.0-beta.5"
+          git push origin v0.2.0-beta.5
+
+          cat > "$RUNNER_TEMP/release-notes.md" <<'EOF'
+          ## Highlights
+
+          - Adds persistent on-device trusted targets for Bridge Browser using exact HTTPS URLs, path prefixes, or origins.
+          - Auto-approves matching trusted sessions while keeping unmatched targets on the normal manual approval path.
+          - Enforces the saved trust boundary across top-level clicks, redirects, back/forward navigation, and remote `page.navigate` requests.
+          - Adds on-device Trusted Targets management, including review/removal and useful parent-path suggestions for path-prefix approvals.
+
+          ## Security semantics
+
+          - Persistent trust can only narrow a session's existing `allowedOrigins`; it cannot expand it.
+          - HTTP and HTTPS remain distinct, non-default ports remain distinct, and subdomains are not implicitly trusted.
+          - Exact rules preserve query matching while ignoring fragments; path rules enforce path boundaries so `/foo` does not authorize `/foobar`.
+          - Removing a trusted target immediately restores manual approval for matching future sessions.
+
+          ## Validation
+
+          - 112/112 Node/unit tests passed on the final physically tested feature head.
+          - Default USB MCP smoke and cellular MCP smoke passed.
+          - Package-content and strict Swift-formatting gates passed.
+          - Physical iPhone acceptance proved persistent auto-approval after force-quit/relaunch, rejection of a non-matching origin, blocking of out-of-scope paths with `TRUST_SCOPE_NOT_APPROVED`, rule removal, and non-persistent `Approve once` behavior.
+
+          ## Note
+
+          Repository-wide GitHub CI was not fully green at merge time because the reviewed production-advisory snapshot had drifted upstream; PR #6 changed no dependency manifests, lockfiles, audit checker, or advisory baseline.
+          EOF
+
+          gh release create v0.2.0-beta.5 \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$RELEASE_SHA" \
+            --title "v0.2.0-beta.5" \
+            --prerelease \
+            --notes-file "$RUNNER_TEMP/release-notes.md"
