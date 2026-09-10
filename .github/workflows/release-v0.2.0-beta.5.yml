@@ -25,7 +25,8 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          test "$(git rev-parse HEAD^)" = "676223c8a2a7d7e25177e4d9f63c921f0c626155"
+          test "$(git rev-parse HEAD^)" = "0b3bfc5dff7af3dfb252095060dd67011e66624c"
+          test "$(git rev-parse HEAD^^)" = "676223c8a2a7d7e25177e4d9f63c921f0c626155"
           git fetch origin main --no-tags
           test "$(git rev-parse origin/main)" = "$GITHUB_SHA"
           test "$(node -p "require('./package.json').version")" = "0.2.0-beta.4"
