@@ -2,8 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  parseAvailableRealIosDevices,
   parseAvailableRealIphones,
   parseDeviceLockState,
+  parseHostAttachedRealIosDevices,
   parseHostAttachedRealIphones,
 } from "./ios-device-state.mjs";
 
@@ -14,9 +16,12 @@ The Onin            The-Onin.coredevice.local         private      available (pa
 Onin's airpad       airpad.coredevice.local           private      available (paired)   iPad Air (5th generation) (iPad13,16)
 Old phone           old.coredevice.local              private      unavailable          iPhone 12 (iPhone13,2)
 `;
-  assert.deepEqual(parseAvailableRealIphones(output), [
+  const expected = [
     { name: "The Onin", state: "available (paired)", model: "iPhone 14 Pro (iPhone15,2)" },
-  ]);
+    { name: "Onin's airpad", state: "available (paired)", model: "iPad Air (5th generation) (iPad13,16)" },
+  ];
+  assert.deepEqual(parseAvailableRealIosDevices(output), expected);
+  assert.deepEqual(parseAvailableRealIphones(output), expected);
 });
 
 test("lock-state parsing fails closed when the field is absent", () => {
@@ -25,7 +30,7 @@ test("lock-state parsing fails closed when the field is absent", () => {
   assert.throws(() => parseDeviceLockState("unknown"), /did not return passcodeRequired/);
 });
 
-test("xcdevice discovery keeps the host-attached iPhone and ignores network ghosts", () => {
+test("xcdevice discovery keeps host-attached iPhone and iPad targets and ignores network ghosts", () => {
   const output = JSON.stringify([
     {
       simulator: false,
@@ -35,6 +40,15 @@ test("xcdevice discovery keeps the host-attached iPhone and ignores network ghos
       identifier: "usb-phone",
       name: "The Onin",
       interface: "usb",
+    },
+    {
+      simulator: false,
+      available: true,
+      platform: "com.apple.platform.iphoneos",
+      modelCode: "iPad13,16",
+      identifier: "usb-pad",
+      name: "Airpad",
+      interface: "wired",
     },
     {
       simulator: false,
@@ -53,7 +67,12 @@ test("xcdevice discovery keeps the host-attached iPhone and ignores network ghos
       identifier: "simulator",
     },
   ]);
-  assert.deepEqual(parseHostAttachedRealIphones(output), [{ udid: "usb-phone", name: "The Onin" }]);
+  const expected = [
+    { udid: "usb-phone", name: "The Onin" },
+    { udid: "usb-pad", name: "Airpad" },
+  ];
+  assert.deepEqual(parseHostAttachedRealIosDevices(output), expected);
+  assert.deepEqual(parseHostAttachedRealIphones(output), expected);
 });
 
 test("xcdevice discovery accepts explicit trusted host attachment flags", () => {
@@ -67,5 +86,5 @@ test("xcdevice discovery accepts explicit trusted host attachment flags", () => 
       connectionProperties: { HostAttached: true, TrustedHostAttached: true },
     },
   ]);
-  assert.deepEqual(parseHostAttachedRealIphones(output), [{ udid: "trusted-phone", name: "iPhone 14 Pro" }]);
+  assert.deepEqual(parseHostAttachedRealIosDevices(output), [{ udid: "trusted-phone", name: "iPhone 14 Pro" }]);
 });

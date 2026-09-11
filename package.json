@@ -2,13 +2,14 @@
   "name": "chatgpt-iphone-bridge",
   "version": "0.2.0-beta.5",
   "private": true,
-  "description": "Local iPhone Safari automation plus an opt-in cellular Bridge Browser for ChatGPT.",
+  "description": "Local iPhone and iPad Safari pool automation plus an opt-in cellular Bridge Browser for ChatGPT.",
   "license": "MIT",
   "type": "module",
   "exports": {
     ".": "./src/index.mjs",
     "./server": "./src/bridge-server.mjs",
     "./session-lifecycle": "./src/async-session-plugin.mjs",
+    "./device-pool": "./src/device-pool-plugin.mjs",
     "./cellular-browser": "./src/cellular-browser-plugin.mjs"
   },
   "files": [
@@ -53,6 +54,7 @@
     "cellular:ios:install": "bash scripts/install-cellular-ios.sh",
     "fixture": "node scripts/serve-fixture.mjs",
     "smoke:physical": "node scripts/physical-smoke.mjs",
+    "smoke:physical:pool": "node scripts/pool-physical-smoke.mjs",
     "qa:bridge-browser:physical": "node scripts/bridge-browser-physical-qa.mjs",
     "prune": "bash scripts/prune-artifacts.sh",
     "status": "bash scripts/status.sh",

@@ -4,7 +4,7 @@
 
 OpenAI Secure MCP Tunnel is the only remote transport. Appium MCP remains a local stdio process and no public Appium listener is created.
 
-Anyone who can invoke the connected ChatGPT app may be able to control the unlocked phone and interact with signed-in Safari pages. Treat workspace and app access as temporary physical access to the device.
+Anyone who can invoke the connected ChatGPT app may be able to control every unlocked iPhone or iPad selected into the local pool and interact with signed-in Safari pages. Treat workspace and app access as temporary physical access to those devices.
 
 Stop the managed runtime when it is not being used.
 
@@ -24,6 +24,8 @@ Bridge Browser stores normal WKWebView cookies and website data on the iPhone. S
 
 Free Personal Team builds expire after seven days. Reinstalling may require pairing again. No production or public-release claim is valid until the full hosted ChatGPT flow passes with USB disconnected and Wi-Fi disabled.
 
+Cellular and USB automation use the same local lease namespace. If `IPHONE_BRIDGE_CELLULAR_DEVICE_UDID` maps the paired cellular phone to its known USB UDID, an active cellular session excludes only that same physical device. Without a mapping, cellular mode takes the conservative whole-pool lease because the bridge cannot prove which USB identity represents the cellular phone.
+
 ## Runtime monitoring
 
 The optional user LaunchAgent is alert-only. It probes runtime health every 60 seconds and never starts or reconnects the tunnel. `npm run runtime:repair` remains an explicit local operator action and refuses a canonical alias configured for another launcher.
@@ -36,12 +38,15 @@ Unless the local operator explicitly enables unsafe full Appium behavior, the br
 - requires non-blocking preparation and Safari session creation;
 - rejects remote Appium URLs and attached sessions;
 - rejects Android, simulators, and native-app capabilities;
-- accepts only the selected device and successfully prepared WDA path;
+- accepts only an explicitly selected device and its successfully prepared WDA path;
+- preserves an explicit `appium:udid` target instead of allowing shared Appium selection state to retarget a concurrent creation;
 - disables Appium relaxed security;
 - blocks file, clipboard, application, permissions, geolocation, settings, and device-control tools unless named locally;
 - binds legacy WDA port forwarding to `127.0.0.1`;
 - keeps the cellular browser and its seven tools disabled by default;
-- permits only one preparation or owned session across local bridge processes.
+- permits only one preparation or owned Safari session per USB UDID across local bridge processes;
+- serializes WDA preparation across the pool because signing/build state is shared;
+- treats the pre-pool global lease as a whole-pool conflict during migration.
 
 These controls reduce accidental exposure. They do not provide per-user authorization inside one ChatGPT workspace. Queue operation IDs are unguessable bearer handles: keep each returned handle inside its requesting ChatGPT task and do not publish it.
 
@@ -49,10 +54,11 @@ These controls reduce accidental exposure. They do not provide per-user authoriz
 
 - Keep runtime API keys outside the repository in a user-owned mode-`600` file.
 - Keep artifact directories mode `700` and files mode `600`.
-- The persistent waiting-room file is stored under the private runtime artifact directory with mode `600`. It contains validated queued capabilities so requests can resume after restart; the MCP status payload and local queue-status command never print those capabilities.
+- Each selected USB device has a persistent waiting-room file under the private runtime artifact directory with mode `600`. These files contain validated queued capabilities so requests can resume after restart; the MCP status payload and local queue-status command never print those capabilities or raw UDIDs.
+- The device-pool manifest is stored mode `600`. It contains the selected UDIDs so per-device queues can be recovered after restart; local status output identifies devices only by a short one-way hash.
 - The runtime monitor stores only redacted health booleans, failure names, and the expected local launcher path in a mode-`600` state file. It stores no keys, device IDs, capabilities, URLs, or session IDs.
 - Never commit keys, provisioning profiles, certificates, signed WDA packages, device IDs, logs, screenshots, or recordings.
-- Do not put secrets or device identifiers in command-line arguments.
+- Do not put secrets or device identifiers in command-line arguments unless a local acceptance harness explicitly requires a device selector and the local process list is trusted.
 - Review tracked and staged files before every commit.
 
 The launcher uses a private umask. `npm run prune` removes old screenshots only from the configured bridge screenshot directory.
@@ -66,12 +72,14 @@ The included fixture is for controlled acceptance only. Its LAN binding is opt-i
 ## Lifecycle
 
 - Use the async lifecycle tools for long preparation and creation calls.
-- Session creation fails before Appium startup when the selected device reports a locked state. A clean preinstalled-WDA launch failure may retry once inside the same private async operation.
+- Session creation fails before Appium startup when the target device reports a locked state. A clean preinstalled-WDA launch failure may retry once inside the same private async operation.
 - Cancelled or timed-out creation deletes any late-created owned session.
-- Waiting Safari requests are FIFO, require a status heartbeat within ten minutes, and may be cancelled with their private operation ID.
-- On restart, queued requests require a fresh confirmation heartbeat; starting or active requests are marked interrupted rather than assumed safe.
-- A cleanup failure retains the cross-process lease and blocks new work.
-- Disconnect and stop attempt owned-session cleanup before releasing the lease.
+- Waiting Safari requests are FIFO per device, require a status heartbeat within ten minutes, and may be cancelled with their private operation ID.
+- Different USB devices may own Safari sessions concurrently; two requests for the same device cannot bypass that device's FIFO order or lease.
+- On restart, per-device queued requests require a fresh confirmation heartbeat; starting or active requests are marked interrupted rather than assumed safe. The legacy pre-pool queue is also read so upgrade does not silently abandon old persisted work.
+- A cleanup failure retains the affected device's cross-process lease and blocks new work on that device. A whole-pool/legacy lease failure remains global by design.
+- Disconnect and stop attempt owned-session cleanup before releasing leases.
+- `stop.sh` checks all runtime `*.lock` directories and refuses a clean stop while a lease remains.
 - `stop.sh` refuses to stop a managed alias that targets a different launcher.
 
 ## Dependency review
@@ -79,10 +87,13 @@ The included fixture is for controlled acceptance only. Its LAN binding is opt-i
 The exact Appium MCP dependency brings a large mobile-automation and signing tree. The repository applies reviewed patches for:
 
 - complete MCP result preservation and hook cleanup;
+- explicit iOS UDID preservation for concurrent device targeting;
 - disabled relaxed security and redacted capability logging;
 - loopback-only legacy WDA forwarding.
 
-As of 2026-08-30, `npm audit --omit=dev` reports 15 transitive advisories: 1 low, 1 moderate, and 13 high. The exact reviewed package set and review deadline are tracked in `security/audit-baseline.json`; CI fails when the set changes or the review expires.
+As of 2026-09-06, `npm audit --omit=dev` reports 17 transitive package advisories: 1 low, 4 moderate, 12 high, and 0 critical. The September 6 review added the newly surfaced moderate `@xmldom/xmldom` and `qs` advisory aggregates and recorded the reduced aggregate severity currently reported for `appium-mcp`. The exact reviewed package set and the September 30 review deadline are tracked in `security/audit-baseline.json`; CI fails whenever that live set changes or the review expires.
+
+The new `@xmldom/xmldom` advisory is in XML serialization and the new `qs` advisories are denial-of-service/query parsing paths. They remain transitive dependencies rather than new bridge features, and the bridge still exposes Appium only through local stdio rather than a public listener. This is a time-bounded review, not a claim that vulnerable dependencies are harmless; update the dependency tree when compatible upstream versions are available.
 
 Do not run `npm audit fix --force`: npm currently proposes an incompatible Appium MCP downgrade. A beta release must keep the advisory review current and must not add a critical advisory.
 

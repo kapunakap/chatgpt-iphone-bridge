@@ -4,23 +4,24 @@ import {
   verifyAppiumMcpNames,
 } from "appium-mcp/core";
 
-import { AsyncSessionPlugin } from "./async-session-plugin.mjs";
+import { DevicePoolPlugin } from "./device-pool-plugin.mjs";
 import { createCellularBrowserPluginFromEnvironment } from "./cellular-browser-plugin.mjs";
 import { IosSessionSafetyPlugin } from "./ios-session-safety-plugin.mjs";
 
 const DEFAULT_INSTRUCTIONS = [
-  "This server controls one locally connected real iPhone for Safari testing.",
-  "Select the real iPhone before preparation or session creation.",
+  "This server controls a local pool of USB-connected real iPhones and iPads for Safari testing.",
+  "Select each target real iOS device by UDID before preparation or session creation.",
   "Use appium_prepare_ios_real_device_async start/status/cancel instead of the blocking preparation tool.",
-  "Use appium_create_session_async start/status/cancel instead of appium_session_management action=create.",
+  "Use appium_create_session_async start/status/cancel instead of appium_session_management action=create; pass udid when more than one device is selected.",
   "Give each Safari session request a unique clientRequestId and reuse it only to retry that same request.",
-  "Keep the returned operationId private, pass it on every status or cancel call, and poll queued work within ten minutes to retain its FIFO spot.",
-  "Delete the owned session when testing is complete.",
+  "Keep each returned operationId private, pass it on every status or cancel call, and poll queued work within ten minutes to retain its same-device FIFO spot.",
+  "Different devices may run Safari sessions concurrently; requests for one device remain FIFO.",
+  "Delete every owned session when testing is complete.",
 ];
 
 export async function createIphoneBridgeServer(options = {}) {
   const policyPlugin = options.policyPlugin ?? new IosSessionSafetyPlugin();
-  const lifecyclePlugin = options.lifecyclePlugin ?? new AsyncSessionPlugin(options.lifecycleOptions);
+  const lifecyclePlugin = options.lifecyclePlugin ?? new DevicePoolPlugin(options.lifecycleOptions);
   const cellularEnabled = options.cellular?.enabled ?? process.env.IPHONE_BRIDGE_CELLULAR_ENABLED === "true";
   const cellularOptions = { ...(options.cellular ?? {}), ...(options.cellularOptions ?? {}) };
   const cellularPlugin =
@@ -37,6 +38,7 @@ export async function createIphoneBridgeServer(options = {}) {
       ? [
           "The optional cellular tools control a dedicated foreground Bridge Browser, not Safari or native apps.",
           "For Bridge Browser, cellular, off-Wi-Fi, or WKWebView requests, use only iphone_browser_* tools; never call select_device or any appium_* tool because those tools test the separate USB Safari path.",
+          "Cellular Bridge Browser and USB Safari share device leases: when a cellular device is mapped to a USB UDID only that device is excluded; without a mapping cellular mode conservatively excludes the whole USB pool.",
           "Start iphone_browser_session, ask the user to tap Approve when it returns awaiting_approval, and keep polling the same operationId for up to five minutes.",
           "Do not cancel an awaiting cellular approval merely to prove delivery or clean up; cancel only when the user explicitly asks or the approval timeout expires.",
           "Stop the cellular session when testing is complete.",

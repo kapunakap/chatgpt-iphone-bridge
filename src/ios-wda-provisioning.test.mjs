@@ -9,7 +9,7 @@ import {
 } from "./ios-wda-provisioning.mjs";
 
 const NOW = Date.parse("2026-09-06T12:00:00Z");
-const UDID = "00008110-001234567890801E";
+const UDID = "test-device-udid";
 
 function profile(overrides = {}) {
   return {
@@ -210,7 +210,7 @@ test("missing WDA ignores wildcard, non-development, other-device, and expired a
       uuid: "other-device",
       bundleId: "com.example.OtherDeviceApp",
       expiresAt: new Date("2026-09-12T00:00:00Z"),
-      devices: ["00008110-009999999999801E"],
+      devices: ["other-device-udid"],
     }),
     profile({ uuid: "expired-app", bundleId: "com.example.ExpiredApp" }),
   ];

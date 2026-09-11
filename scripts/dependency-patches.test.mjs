@@ -16,6 +16,8 @@ test("installed Appium MCP contains the reviewed result and security patch", asy
   assert.match(plugin, /\.\.\.rawResult/);
   assert.match(plugin, /Plugin afterCall cleanup failed/);
   assert.match(createSession, /APPIUM_MCP_RELAXED_SECURITY === 'true'/);
+  assert.match(createSession, /hasExplicitDeviceTarget/);
+  assert.match(createSession, /!hasExplicitDeviceTarget && selectedLocalDevice/);
   assert.doesNotMatch(createSession, /session with capabilities/);
 });
 

@@ -107,7 +107,15 @@ async function main() {
   if (names.size !== expectedToolCount) {
     throw new Error(`Expected ${expectedToolCount} Appium tools, found ${names.size}`);
   }
+
+  const prepareProperties = toolsByName.get("appium_prepare_ios_real_device_async")?.inputSchema?.properties ?? {};
+  if (!prepareProperties.udid || !prepareProperties.operationId) {
+    throw new Error("appium_prepare_ios_real_device_async schema is missing pool lifecycle handles");
+  }
   const createProperties = toolsByName.get("appium_create_session_async")?.inputSchema?.properties ?? {};
+  if (!createProperties.udid || !createProperties.operationId) {
+    throw new Error("appium_create_session_async schema is missing pool lifecycle handles");
+  }
   if (!createProperties.clientRequestId || createProperties.clientRequestId.maxLength !== 200) {
     throw new Error("appium_create_session_async schema is missing the required clientRequestId contract");
   }

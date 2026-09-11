@@ -12,16 +12,18 @@ export class DeviceStateError extends Error {
   }
 }
 
-export function parseAvailableRealIphones(output) {
+export function parseAvailableRealIosDevices(output) {
   return String(output)
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean)
     .map((line) => line.split(/\s{2,}/))
     .filter((columns) => columns.length >= 5)
-    .filter((columns) => columns[3] === "available (paired)" && /^iPhone\b/.test(columns.slice(4).join(" ")))
+    .filter((columns) => columns[3] === "available (paired)" && /^(iPhone|iPad)\b/.test(columns.slice(4).join(" ")))
     .map((columns) => ({ name: columns[0], state: columns[3], model: columns.slice(4).join(" ") }));
 }
+
+export const parseAvailableRealIphones = parseAvailableRealIosDevices;
 
 export function parseDeviceLockState(output) {
   const match = String(output).match(/passcodeRequired:\s*(true|false)/i);
@@ -43,7 +45,7 @@ function nestedValues(value, wantedKeys, found = []) {
   return found;
 }
 
-export function parseHostAttachedRealIphones(output) {
+export function parseHostAttachedRealIosDevices(output) {
   const devices = JSON.parse(String(output));
   if (!Array.isArray(devices)) throw new DeviceStateError("DEVICE_STATE_UNAVAILABLE", "xcdevice returned invalid JSON");
   const unique = new Map();
@@ -62,7 +64,7 @@ export function parseHostAttachedRealIphones(output) {
       device.simulator !== true &&
       device.available !== false &&
       platform.includes("iphoneos") &&
-      /^iPhone/i.test(model) &&
+      /^(iPhone|iPad)/i.test(model) &&
       (usbAttached || (hostAttached && trustedHostAttached))
     ) {
       unique.set(identifier, { udid: identifier, name: device.name ?? model });
@@ -71,21 +73,27 @@ export function parseHostAttachedRealIphones(output) {
   return [...unique.values()];
 }
 
-export async function listHostAttachedRealIphones(options = {}) {
+export const parseHostAttachedRealIphones = parseHostAttachedRealIosDevices;
+
+export async function listHostAttachedRealIosDevices(options = {}) {
   const run = options.execFile ?? execFile;
   const { stdout } = await run("xcrun", ["xcdevice", "list", "--timeout=5"], {
     timeout: options.timeoutMs ?? 10_000,
   });
-  return parseHostAttachedRealIphones(stdout);
+  return parseHostAttachedRealIosDevices(stdout);
 }
 
-export async function listAvailableRealIphones(options = {}) {
+export const listHostAttachedRealIphones = listHostAttachedRealIosDevices;
+
+export async function listAvailableRealIosDevices(options = {}) {
   const run = options.execFile ?? execFile;
   const { stdout } = await run("xcrun", ["devicectl", "list", "devices"], { timeout: options.timeoutMs ?? 15_000 });
-  return parseAvailableRealIphones(stdout);
+  return parseAvailableRealIosDevices(stdout);
 }
 
-export async function assertRealIphoneUnlocked(udid, options = {}) {
+export const listAvailableRealIphones = listAvailableRealIosDevices;
+
+export async function assertRealIosDeviceUnlocked(udid, options = {}) {
   const run = options.execFile ?? execFile;
   let stdout;
   try {
@@ -95,11 +103,13 @@ export async function assertRealIphoneUnlocked(udid, options = {}) {
       { timeout: options.timeoutMs ?? 15_000, signal: options.signal },
     ));
   } catch (error) {
-    throw new DeviceStateError("DEVICE_STATE_UNAVAILABLE", `Unable to read iPhone lock state: ${error.message}`, {
+    throw new DeviceStateError("DEVICE_STATE_UNAVAILABLE", `Unable to read iOS device lock state: ${error.message}`, {
       cause: error,
     });
   }
   const state = parseDeviceLockState(stdout);
-  if (state.locked) throw new DeviceStateError("DEVICE_LOCKED", "Unlock the selected iPhone before creating Safari");
+  if (state.locked) throw new DeviceStateError("DEVICE_LOCKED", "Unlock the selected iOS device before creating Safari");
   return state;
 }
+
+export const assertRealIphoneUnlocked = assertRealIosDeviceUnlocked;
